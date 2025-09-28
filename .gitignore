@@ -1,0 +1,53 @@
+# Build directories
+/build/
+/out/
+/bin/
+/obj/
+/Debug/
+/Release/
+
+# Visual Studio files
+*.suo
+*.user
+*.vcxproj.user
+*.vcxproj.filters
+*.sln.docstates
+
+# CMake files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+
+# Executables and libraries
+*.exe
+*.dll
+*.pdb
+*.lib
+*.a
+*.so
+*.dylib
+
+# Assets
+/assets/
+
+# vcpkg
+/vcpkg_installed/
+
+# DirectX 12 Agility SDK
+/external/
+
+# Shader compiled files
+*.cso
+*.spv
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

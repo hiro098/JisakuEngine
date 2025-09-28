@@ -1,0 +1,14 @@
+{
+  "name": "jisaku-engine",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "fmt",
+    "spdlog",
+    "directxtex",
+    "directxtk12",
+    {
+      "name": "imgui",
+      "features": ["win32-binding", "docking"]
+    }
+  ]
+}
