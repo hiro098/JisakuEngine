@@ -20,6 +20,9 @@ set(VCPKG_TARGET_TRIPLET "x64-windows" CACHE STRING "Vcpkg target triplet")
 set(D3D12SDKVersion "1.610.4" CACHE STRING "DirectX 12 Agility SDK version")
 set(D3D12SDKPath "${CMAKE_CURRENT_SOURCE_DIR}/external/DirectX-Headers" CACHE STRING "DirectX 12 Agility SDK path")
 
+# CMakeモジュールパス追加
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 # DXC検索
 find_package(DXC REQUIRED)
 
