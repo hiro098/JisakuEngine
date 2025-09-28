@@ -8,7 +8,7 @@
     "directxtk12",
     {
       "name": "imgui",
-      "features": ["win32-binding", "docking"]
+      "features": ["win32-binding", "dx12-binding"]
     }
   ]
 }
