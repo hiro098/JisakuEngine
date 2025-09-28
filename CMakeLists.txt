@@ -23,8 +23,23 @@ set(D3D12SDKPath "${CMAKE_CURRENT_SOURCE_DIR}/external/DirectX-Headers" CACHE ST
 # CMakeモジュールパス追加
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-# DXC検索
-find_package(DXC REQUIRED)
+# DXC (DirectX Shader Compiler) – find by path or typical locations
+if(NOT DEFINED DXC_EXECUTABLE)
+  set(_DXC_HINTS
+    "$ENV{DXC_EXECUTABLE}"
+    "C:/ProgramData/chocolatey/bin"
+    "C:/Program Files (x86)/Windows Kits/10/bin/10.0.22621.0/x64"
+    "C:/Program Files (x86)/Windows Kits/10/bin/10.0.19041.0/x64"
+    "C:/Program Files (x86)/Windows Kits/10/bin/10.0.18362.0/x64"
+  )
+  find_program(DXC_EXECUTABLE NAMES dxc HINTS ${_DXC_HINTS})
+endif()
+
+if(NOT DXC_EXECUTABLE)
+  message(FATAL_ERROR "dxc.exe not found. Set -DDXC_EXECUTABLE=FULL_PATH_TO_dxc.exe")
+else()
+  message(STATUS "Using DXC: ${DXC_EXECUTABLE}")
+endif()
 
 # ソースファイル
 set(SOURCES
