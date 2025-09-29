@@ -19,7 +19,7 @@ namespace jisaku
         void Shutdown();
 
         void Present();
-        void Resize(UINT width, UINT height);
+        bool Resize(UINT width, UINT height);
 
         ID3D12Resource* GetBackBuffer(UINT index) const;
         D3D12_CPU_DESCRIPTOR_HANDLE GetRTVHandle(UINT index) const;
@@ -45,5 +45,6 @@ namespace jisaku
         UINT m_width;
         UINT m_height;
         DXGI_FORMAT m_rtvFormat;
+        UINT m_bufferCount;
     };
 }

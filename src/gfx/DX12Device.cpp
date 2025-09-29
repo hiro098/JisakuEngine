@@ -6,12 +6,16 @@
 
 namespace jisaku
 {
-    DX12Device::DX12Device() : m_frameIndex(0), m_frameCount(2)
+    DX12Device::DX12Device() : m_fenceValue(0), m_fenceEvent(nullptr), m_frameIndex(0), m_frameCount(2)
     {
     }
 
     DX12Device::~DX12Device()
     {
+        if (m_fenceEvent)
+        {
+            CloseHandle(m_fenceEvent);
+        }
         Shutdown();
     }
 
@@ -38,6 +42,12 @@ namespace jisaku
         if (!CreateCommandList())
         {
             spdlog::error("Failed to create command list");
+            return false;
+        }
+
+        if (!CreateFence())
+        {
+            spdlog::error("Failed to create fence");
             return false;
         }
 
@@ -166,5 +176,35 @@ namespace jisaku
         m_commandQueue->ExecuteCommandLists(1, lists);
         swap.Present(vsync);
         m_frameIndex = (m_frameIndex + 1) % 2; // ダブルバッファリング
+    }
+
+    bool DX12Device::CreateFence()
+    {
+        HRESULT hr = m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence));
+        if (FAILED(hr))
+        {
+            spdlog::error("Failed to create fence: 0x{:x}", hr);
+            return false;
+        }
+
+        m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+        if (m_fenceEvent == nullptr)
+        {
+            spdlog::error("Failed to create fence event");
+            return false;
+        }
+
+        return true;
+    }
+
+    void DX12Device::WaitIdle()
+    {
+        // m_queue, m_fence, m_fenceValue, m_fenceEvent を保持している前提
+        const UINT64 signal = ++m_fenceValue;
+        m_commandQueue->Signal(m_fence.Get(), signal);
+        if (m_fence->GetCompletedValue() < signal) {
+            m_fence->SetEventOnCompletion(signal, m_fenceEvent);
+            WaitForSingleObject(m_fenceEvent, INFINITE);
+        }
     }
 }

@@ -29,6 +29,7 @@ namespace jisaku
         HINSTANCE m_hInstance;
         HWND m_hwnd;
         bool m_running;
+        bool m_inSizeMove;
 
         std::unique_ptr<DX12Device> m_device;
         std::unique_ptr<Swapchain> m_swapchain;

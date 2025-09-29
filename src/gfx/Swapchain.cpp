@@ -7,7 +7,7 @@
 
 namespace jisaku
 {
-    Swapchain::Swapchain() : m_device(nullptr), m_rtvDescriptorSize(0), m_currentBackBufferIndex(0), m_width(0), m_height(0), m_rtvFormat(DXGI_FORMAT_R8G8B8A8_UNORM)
+    Swapchain::Swapchain() : m_device(nullptr), m_rtvDescriptorSize(0), m_currentBackBufferIndex(0), m_width(0), m_height(0), m_rtvFormat(DXGI_FORMAT_R8G8B8A8_UNORM), m_bufferCount(2)
     {
     }
 
@@ -124,7 +124,7 @@ namespace jisaku
         debugFile.flush();
         
         DXGI_SWAP_CHAIN_DESC1 swapchainDesc = {};
-        swapchainDesc.BufferCount = 2;
+        swapchainDesc.BufferCount = m_bufferCount;
         swapchainDesc.Width = m_width;
         swapchainDesc.Height = m_height;
         // 一部環境で _SRGB のスワップチェーン作成が INVALID_CALL となるため UNORM を使用
@@ -214,7 +214,7 @@ namespace jisaku
     bool Swapchain::CreateRTVHeap()
     {
         D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
-        rtvHeapDesc.NumDescriptors = 2;
+        rtvHeapDesc.NumDescriptors = m_bufferCount;
         rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
         rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 
@@ -231,7 +231,7 @@ namespace jisaku
 
     bool Swapchain::CreateRTVs()
     {
-        for (UINT i = 0; i < 2; ++i)
+        for (UINT i = 0; i < m_bufferCount; ++i)
         {
             HRESULT hr = m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_backBuffers[i]));
             if (FAILED(hr))
@@ -255,34 +255,45 @@ namespace jisaku
         m_currentBackBufferIndex = m_swapChain->GetCurrentBackBufferIndex();
     }
 
-    void Swapchain::Resize(UINT width, UINT height)
+    bool Swapchain::Resize(UINT width, UINT height)
     {
-        if (m_width == width && m_height == height)
-            return;
+        if (width == 0 || height == 0) return false;
+        if (width == m_width && height == m_height) return true;
+
+        // GPUアイドル（DX12Deviceに WaitIdle() があるなら呼ぶ。なければFence同期をここに実装）
+        if (m_device) { m_device->WaitIdle(); }
+
+        // 旧バックバッファ解放
+        for (auto& bb : m_backBuffers) { bb.Reset(); }
+
+        // ResizeBuffers
+        UINT flags = 0; // ALLOW_TEARING を使うならここで設定
+        HRESULT hr = m_swapChain->ResizeBuffers(
+            m_bufferCount,
+            width, height,
+            m_rtvFormat,
+            flags);
+        if (FAILED(hr)) { 
+            spdlog::error("Failed to resize swapchain: 0x{:x}", hr);
+            return false; 
+        }
 
         m_width = width;
         m_height = height;
 
-        // バックバッファをリリース
-        for (auto& backBuffer : m_backBuffers)
+        // 新RTVを作成
+        Microsoft::WRL::ComPtr<ID3D12Device> dev = m_device->GetDevice();
+        D3D12_CPU_DESCRIPTOR_HANDLE rtvStart = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        for (UINT i = 0; i < m_bufferCount; ++i)
         {
-            if (backBuffer)
-            {
-                backBuffer->Release();
-                backBuffer.Reset();
-            }
+            Microsoft::WRL::ComPtr<ID3D12Resource> res;
+            m_swapChain->GetBuffer(i, IID_PPV_ARGS(&res));
+            D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = rtvStart;
+            rtvHandle.ptr += i * m_rtvDescriptorSize;
+            dev->CreateRenderTargetView(res.Get(), nullptr, rtvHandle);
+            m_backBuffers[i] = std::move(res);
         }
-
-        // スワップチェーンをリサイズ
-        HRESULT hr = m_swapChain->ResizeBuffers(2, m_width, m_height, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, 0);
-        if (FAILED(hr))
-        {
-            spdlog::error("Failed to resize swapchain: 0x{:x}", hr);
-            return;
-        }
-
-        // RTVを再作成
-        CreateRTVs();
+        return true;
     }
 
     ID3D12Resource* Swapchain::GetBackBuffer(UINT index) const

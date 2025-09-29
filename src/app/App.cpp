@@ -11,7 +11,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 
 namespace jisaku
 {
-    App::App() : m_hInstance(nullptr), m_hwnd(nullptr), m_running(false)
+    App::App() : m_hInstance(nullptr), m_hwnd(nullptr), m_running(false), m_inSizeMove(false)
     {
     }
 
@@ -165,28 +165,33 @@ namespace jisaku
                 return 0;
 
                     case WM_SIZE:
-                        if (wParam != SIZE_MINIMIZED)
-                        {
-                            // リサイズ処理：作成済みならResize、未作成なら初期化
-                            if (app->m_swapchain)
-                            {
-                                if (app->m_swapchain->GetCurrentBackBuffer())
-                                {
-                                    UINT newW = LOWORD(lParam);
-                                    UINT newH = HIWORD(lParam);
-                                    if (newW == 0) newW = 1; // DXGIは0サイズ不可
-                                    if (newH == 0) newH = 1;
-                                    app->m_swapchain->Resize(newW, newH);
-                                }
-                                else
-                                {
-                                    if (app->m_swapchain->Initialize(app->m_device.get(), hwnd) && app->m_renderPass)
-                                    {
-                                        app->m_renderPass->Initialize(app->m_device.get(), app->m_swapchain.get());
-                                    }
-                                }
-                            }
+                    {
+                        UINT w = LOWORD(lParam);
+                        UINT h = HIWORD(lParam);
+                        if (w != 0 && h != 0 && app->m_swapchain) {
+                            app->m_swapchain->Resize(w, h);
                         }
+                        return 0;
+                    }
+                    case WM_DPICHANGED:
+                    {
+                        // DPIに応じてウィンドウ矩形が提案されるので、それを適用
+                        RECT* const prcNewWindow = reinterpret_cast<RECT*>(lParam);
+                        SetWindowPos(hwnd, nullptr,
+                                     prcNewWindow->left, prcNewWindow->top,
+                                     prcNewWindow->right - prcNewWindow->left,
+                                     prcNewWindow->bottom - prcNewWindow->top,
+                                     SWP_NOZORDER | SWP_NOACTIVATE);
+                        return 0;
+                    }
+                    case WM_ENTERSIZEMOVE:
+                        app->m_inSizeMove = true;
+                        return 0;
+                    case WM_EXITSIZEMOVE:
+                        app->m_inSizeMove = false;
+                        // 終了時に現在のクライアントサイズでResize（ドラッグ中の大量Resizeを避ける）
+                        RECT rc; GetClientRect(hwnd, &rc);
+                        if (app->m_swapchain) app->m_swapchain->Resize(rc.right - rc.left, rc.bottom - rc.top);
                         return 0;
             }
         }
@@ -204,6 +209,15 @@ namespace jisaku
         // スワップチェーンが初期化されている場合のみレンダリング
         if (m_swapchain && m_swapchain->GetCurrentBackBuffer())
         {
+            // 最小化チェック
+            RECT rect;
+            GetClientRect(m_hwnd, &rect);
+            if (rect.right - rect.left == 0 || rect.bottom - rect.top == 0)
+            {
+                Sleep(1); // 負荷低減
+                return;
+            }
+
             const float clear[4] = { 0.392f, 0.584f, 0.929f, 1.0f }; // CornflowerBlue-ish
             m_device->BeginFrame();
             m_imgui.NewFrame();
