@@ -1,36 +1,26 @@
 #pragma once
-
+#include <wrl.h>
 #include <d3d12.h>
-#include <wrl/client.h>
-#include <Windows.h>
+#include <dxgiformat.h>
 
-namespace jisaku
-{
-    class DX12Device;
-    class Swapchain;
+namespace jisaku {
+class DX12Device;
+class Swapchain;
 
-    class ImGuiLayer
-    {
-    public:
-        ImGuiLayer();
-        ~ImGuiLayer();
+class ImGuiLayer {
+public:
+    ImGuiLayer() = default;
+    ~ImGuiLayer();
 
-        bool Initialize(DX12Device* device, Swapchain* swapchain, HWND hwnd);
-        void Shutdown();
-        void Update();
-        void Render();
+    bool Init(DX12Device* dev, Swapchain* swap, HWND hwnd);
+    void NewFrame();
+    void Render(ID3D12GraphicsCommandList* cmdList);
+    void Shutdown();
 
-    private:
-        bool CreateDescriptorHeap();
-        void SetupImGuiStyle();
+private:
+    DX12Device* m_dev = nullptr;
+    Swapchain*  m_swap = nullptr;
 
-        DX12Device* m_device;
-        Swapchain* m_swapchain;
-        HWND m_hwnd;
-        Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-        UINT m_srvDescriptorSize;
-        bool m_vsyncEnabled;
-        float m_fps;
-        float m_frameTime;
-    };
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap; // shader-visible for font
+};
 }

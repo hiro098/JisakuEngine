@@ -26,6 +26,7 @@ namespace jisaku
         ID3D12CommandQueue* GetQueue() const { return m_commandQueue.Get(); }
         ID3D12CommandAllocator* GetCmdAlloc(UINT /*frameIndex*/) const { return m_commandAllocator.Get(); }
         UINT GetFrameIndex() const { return m_frameIndex; }
+        UINT GetFrameCount() const { return m_frameCount; }
         void BeginFrame();
         void EndFrameAndPresent(class Swapchain& swap, bool vsync);
 
@@ -41,5 +42,6 @@ namespace jisaku
         Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_commandAllocator;
         Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_commandList;
         UINT m_frameIndex;
+        UINT m_frameCount;
     };
 }

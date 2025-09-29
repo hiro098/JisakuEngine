@@ -3,13 +3,14 @@
 #include <Windows.h>
 #include <memory>
 #include <wrl/client.h>
+#include "ui/ImGuiLayer.h"
 
 namespace jisaku
 {
     class DX12Device;
     class Swapchain;
-    class ImGuiLayer;
     class RenderPass_Clear;
+    class RenderPass_Triangle;
 
     class App
     {
@@ -31,7 +32,8 @@ namespace jisaku
 
         std::unique_ptr<DX12Device> m_device;
         std::unique_ptr<Swapchain> m_swapchain;
-        std::unique_ptr<ImGuiLayer> m_imgui;
+        ImGuiLayer m_imgui;
         std::unique_ptr<RenderPass_Clear> m_renderPass;
+        std::unique_ptr<RenderPass_Triangle> m_trianglePass;
     };
 }

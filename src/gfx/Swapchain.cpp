@@ -7,7 +7,7 @@
 
 namespace jisaku
 {
-    Swapchain::Swapchain() : m_device(nullptr), m_rtvDescriptorSize(0), m_currentBackBufferIndex(0), m_width(0), m_height(0)
+    Swapchain::Swapchain() : m_device(nullptr), m_rtvDescriptorSize(0), m_currentBackBufferIndex(0), m_width(0), m_height(0), m_rtvFormat(DXGI_FORMAT_R8G8B8A8_UNORM)
     {
     }
 
@@ -128,7 +128,8 @@ namespace jisaku
         swapchainDesc.Width = m_width;
         swapchainDesc.Height = m_height;
         // 一部環境で _SRGB のスワップチェーン作成が INVALID_CALL となるため UNORM を使用
-        swapchainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        m_rtvFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+        swapchainDesc.Format = m_rtvFormat;
         swapchainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
         swapchainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
         swapchainDesc.SampleDesc.Count = 1;
@@ -311,6 +312,11 @@ namespace jisaku
         D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
         rtvHandle.ptr += GetCurrentBackBufferIndex() * m_rtvDescriptorSize;
         return rtvHandle;
+    }
+
+    DXGI_FORMAT Swapchain::GetRTVFormat() const
+    {
+        return m_rtvFormat;
     }
 
     void Swapchain::Present(bool vsync)

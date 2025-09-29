@@ -1,160 +1,84 @@
-#include "ImGuiLayer.h"
+#include "ui/ImGuiLayer.h"
 #include "gfx/DX12Device.h"
 #include "gfx/Swapchain.h"
-#include <imgui.h>
-#include <imgui_impl_win32.h>
-#include <imgui_impl_dx12.h>
-#include <spdlog/spdlog.h>
-#include <chrono>
 
-namespace jisaku
-{
-    ImGuiLayer::ImGuiLayer() : m_device(nullptr), m_swapchain(nullptr), m_hwnd(nullptr), m_srvDescriptorSize(0), m_vsyncEnabled(true), m_fps(0.0f), m_frameTime(0.0f)
-    {
-    }
+#include "imgui.h"
+#include "imgui_impl_win32.h"
+#include "imgui_impl_dx12.h"
 
-    ImGuiLayer::~ImGuiLayer()
-    {
-        Shutdown();
-    }
+using Microsoft::WRL::ComPtr;
 
-    bool ImGuiLayer::Initialize(DX12Device* device, Swapchain* swapchain, HWND hwnd)
-    {
-        m_device = device;
-        m_swapchain = swapchain;
-        m_hwnd = hwnd;
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-        if (!CreateDescriptorHeap())
-        {
-            spdlog::error("Failed to create descriptor heap for ImGui");
-            return false;
-        }
+namespace jisaku {
 
-        // ImGuiコンテキスト作成
-        IMGUI_CHECKVERSION();
-        ImGui::CreateContext();
-        ImGuiIO& io = ImGui::GetIO();
-        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-        // io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+ImGuiLayer::~ImGuiLayer() { Shutdown(); }
 
-        // ImGuiスタイル設定
-        SetupImGuiStyle();
+bool ImGuiLayer::Init(DX12Device* dev, Swapchain* swap, HWND hwnd) {
+    m_dev = dev; m_swap = swap;
 
-        // Win32バックエンド初期化
-        if (!ImGui_ImplWin32_Init(hwnd))
-        {
-            spdlog::error("Failed to initialize ImGui Win32 backend");
-            return false;
-        }
+    // ImGui context
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 
-        // DX12バックエンド初期化
-        if (!ImGui_ImplDX12_Init(device->GetDevice(), 2, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, m_srvHeap.Get(),
-            m_srvHeap->GetCPUDescriptorHandleForHeapStart(),
-            m_srvHeap->GetGPUDescriptorHandleForHeapStart()))
-        {
-            spdlog::error("Failed to initialize ImGui DX12 backend");
-            return false;
-        }
+    // Style
+    ImGui::StyleColorsDark();
 
-        spdlog::info("ImGuiLayer initialized successfully");
-        return true;
-    }
+    // SRV heap (shader visible, 1 descriptor for font)
+    D3D12_DESCRIPTOR_HEAP_DESC desc = {};
+    desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    desc.NumDescriptors = 1;
+    desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (FAILED(m_dev->GetDevice()->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&m_srvHeap)))) return false;
 
-    void ImGuiLayer::Shutdown()
-    {
+    // Backends
+    if (!ImGui_ImplWin32_Init(hwnd)) return false;
+
+    DXGI_FORMAT fmt = m_swap->GetRTVFormat(); // e.g., DXGI_FORMAT_R8G8B8A8_UNORM / _SRGB
+    ImGui_ImplDX12_Init(
+        m_dev->GetDevice(),
+        /*NumFramesInFlight*/  m_dev->GetFrameCount(),   // DX12Device に API が無ければ 2 or 3 を返す関数を追加
+        fmt,
+        m_srvHeap.Get(),
+        m_srvHeap->GetCPUDescriptorHandleForHeapStart(),
+        m_srvHeap->GetGPUDescriptorHandleForHeapStart()
+    );
+
+    return true;
+}
+
+void ImGuiLayer::NewFrame() {
+    ImGui_ImplDX12_NewFrame();
+    ImGui_ImplWin32_NewFrame();
+    ImGui::NewFrame();
+
+    // --- Sample debug UI ---
+    ImGui::Begin("Debug");
+    ImGui::Text("JisakuEngine (DX12)");
+    ImGui::Text("FPS: %.1f", ImGui::GetIO().Framerate);
+    static bool vsync = true;
+    ImGui::Checkbox("VSync", &vsync);
+    // VSync のトグルは App 側で拾えるように後で接続しても良い
+    ImGui::End();
+}
+
+void ImGuiLayer::Render(ID3D12GraphicsCommandList* cmd) {
+    ImGui::Render();
+    ID3D12DescriptorHeap* heaps[] = { m_srvHeap.Get() };
+    cmd->SetDescriptorHeaps(1, heaps);
+    ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), cmd);
+}
+
+void ImGuiLayer::Shutdown() {
+    if (ImGui::GetCurrentContext()) {
         ImGui_ImplDX12_Shutdown();
         ImGui_ImplWin32_Shutdown();
         ImGui::DestroyContext();
-
-        if (m_srvHeap)
-        {
-            m_srvHeap->Release();
-            m_srvHeap.Reset();
-        }
     }
-
-    void ImGuiLayer::Update()
-    {
-        // FPS計算
-        static auto lastTime = std::chrono::high_resolution_clock::now();
-        auto currentTime = std::chrono::high_resolution_clock::now();
-        auto deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
-        lastTime = currentTime;
-
-        m_frameTime = deltaTime;
-        m_fps = 1.0f / deltaTime;
-
-        // ImGuiフレーム開始
-        ImGui_ImplDX12_NewFrame();
-        ImGui_ImplWin32_NewFrame();
-        ImGui::NewFrame();
-
-        // デバッグウィンドウ
-        ImGui::Begin("Debug Info");
-        ImGui::Text("FPS: %.1f", m_fps);
-        ImGui::Text("Frame Time: %.3f ms", m_frameTime * 1000.0f);
-        ImGui::Checkbox("VSync", &m_vsyncEnabled);
-        ImGui::End();
-    }
-
-    void ImGuiLayer::Render()
-    {
-        // コマンドリストを取得
-        ID3D12GraphicsCommandList* commandList = m_device->GetCommandList();
-
-        // リソースバリア設定
-        D3D12_RESOURCE_BARRIER barrier = {};
-        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        barrier.Transition.pResource = m_swapchain->GetBackBuffer(m_swapchain->GetCurrentBackBufferIndex());
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-
-        commandList->ResourceBarrier(1, &barrier);
-
-        // レンダーターゲットを設定
-        D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_swapchain->GetRTVHandle(m_swapchain->GetCurrentBackBufferIndex());
-        commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
-
-        // ImGuiレンダリング
-        ImGui::Render();
-        ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
-    }
-
-    bool ImGuiLayer::CreateDescriptorHeap()
-    {
-        D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-        srvHeapDesc.NumDescriptors = 2;
-        srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-
-        HRESULT hr = m_device->GetDevice()->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvHeap));
-        if (FAILED(hr))
-        {
-            spdlog::error("Failed to create SRV heap for ImGui: 0x{:x}", hr);
-            return false;
-        }
-
-        m_srvDescriptorSize = m_device->GetDevice()->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
-        return true;
-    }
-
-    void ImGuiLayer::SetupImGuiStyle()
-    {
-        ImGuiStyle& style = ImGui::GetStyle();
-        style.WindowRounding = 5.0f;
-        style.FrameRounding = 3.0f;
-        style.GrabRounding = 3.0f;
-        style.ScrollbarRounding = 3.0f;
-
-        ImVec4* colors = style.Colors;
-        colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.06f, 0.06f, 0.94f);
-        colors[ImGuiCol_Header] = ImVec4(0.20f, 0.20f, 0.20f, 0.54f);
-        colors[ImGuiCol_HeaderHovered] = ImVec4(0.40f, 0.40f, 0.40f, 0.54f);
-        colors[ImGuiCol_HeaderActive] = ImVec4(0.20f, 0.20f, 0.20f, 0.54f);
-        colors[ImGuiCol_Button] = ImVec4(0.20f, 0.20f, 0.20f, 0.54f);
-        colors[ImGuiCol_ButtonHovered] = ImVec4(0.40f, 0.40f, 0.40f, 0.54f);
-        colors[ImGuiCol_ButtonActive] = ImVec4(0.20f, 0.20f, 0.20f, 0.54f);
-    }
+    m_srvHeap.Reset();
 }
+
+} // namespace jisaku

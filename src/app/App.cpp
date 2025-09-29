@@ -2,8 +2,12 @@
 #include "gfx/DX12Device.h"
 #include "gfx/Swapchain.h"
 #include "gfx/RenderPass_Clear.h"
+#include "gfx/RenderPass_Triangle.h"
 #include "ui/ImGuiLayer.h"
+#include "imgui_impl_win32.h"
 #include <spdlog/spdlog.h>
+
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 namespace jisaku
 {
@@ -83,6 +87,21 @@ namespace jisaku
             return false;
         }
 
+        // TrianglePass初期化
+        m_trianglePass = std::make_unique<RenderPass_Triangle>();
+        if (!m_trianglePass->Initialize(m_device.get(), m_swapchain.get()))
+        {
+            spdlog::error("Failed to initialize RenderPass_Triangle");
+            return false;
+        }
+
+        // ImGui初期化
+        if (!m_imgui.Init(m_device.get(), m_swapchain.get(), m_hwnd))
+        {
+            spdlog::error("Failed to initialize ImGui");
+            return false;
+        }
+
         m_running = true;
         spdlog::info("Application initialized successfully");
         return true;
@@ -120,6 +139,9 @@ namespace jisaku
 
     LRESULT CALLBACK App::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
+        if (ImGui_ImplWin32_WndProcHandler(hwnd, uMsg, wParam, lParam))
+            return 1; // ImGui が処理した場合は早期リターン
+
         App* app = nullptr;
 
         if (uMsg == WM_NCCREATE)
@@ -184,7 +206,10 @@ namespace jisaku
         {
             const float clear[4] = { 0.392f, 0.584f, 0.929f, 1.0f }; // CornflowerBlue-ish
             m_device->BeginFrame();
+            m_imgui.NewFrame();
             m_renderPass->Execute(m_device->GetCommandList(), *m_swapchain, clear);
+            m_trianglePass->Execute(m_device->GetCommandList(), *m_swapchain);
+            m_imgui.Render(m_device->GetCommandList());
             m_device->EndFrameAndPresent(*m_swapchain, true); // VSync有効
         }
     }

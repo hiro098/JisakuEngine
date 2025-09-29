@@ -48,6 +48,7 @@ set(SOURCES
     src/gfx/DX12Device.cpp
     src/gfx/Swapchain.cpp
     src/gfx/RenderPass_Clear.cpp
+    src/gfx/RenderPass_Triangle.cpp
     src/ui/ImGuiLayer.cpp
 )
 
@@ -57,6 +58,7 @@ set(HEADERS
     src/gfx/DX12Device.h
     src/gfx/Swapchain.h
     src/gfx/RenderPass_Clear.h
+    src/gfx/RenderPass_Triangle.h
     src/ui/ImGuiLayer.h
 )
 
@@ -66,6 +68,13 @@ add_custom_command(
     COMMAND ${DXC_EXECUTABLE} -T ps_6_0 -E PSMain -Fo ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fullscreen.cso ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fullscreen.hlsl
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fullscreen.hlsl
     COMMENT "Compiling fullscreen.hlsl"
+)
+
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.cso
+    COMMAND ${DXC_EXECUTABLE} -T vs_6_0 -E VSMain -T ps_6_0 -E PSMain -Fo ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.cso ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.hlsl
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.hlsl
+    COMMENT "Compiling Triangle.hlsl"
 )
 
 # 実行ファイル作成
@@ -102,7 +111,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 # シェーダーファイルをビルドに含める
-add_custom_target(shaders ALL DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fullscreen.cso)
+add_custom_target(shaders ALL DEPENDS 
+    ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fullscreen.cso
+    ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.cso
+)
 
 # Agility SDK DLLをコピー（存在する場合のみ）
 if(EXISTS "${D3D12SDKPath}/bin/x64/d3d12.dll")

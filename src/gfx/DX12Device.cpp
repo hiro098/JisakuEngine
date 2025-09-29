@@ -6,7 +6,7 @@
 
 namespace jisaku
 {
-    DX12Device::DX12Device() : m_frameIndex(0)
+    DX12Device::DX12Device() : m_frameIndex(0), m_frameCount(2)
     {
     }
 

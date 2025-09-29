@@ -28,6 +28,7 @@ namespace jisaku
         D3D12_CPU_DESCRIPTOR_HANDLE GetCurrentRTV() const;
         UINT GetWidth() const { return m_width; }
         UINT GetHeight() const { return m_height; }
+        DXGI_FORMAT GetRTVFormat() const;
         void Present(bool vsync);
 
     private:
@@ -43,5 +44,6 @@ namespace jisaku
         UINT m_currentBackBufferIndex;
         UINT m_width;
         UINT m_height;
+        DXGI_FORMAT m_rtvFormat;
     };
 }
