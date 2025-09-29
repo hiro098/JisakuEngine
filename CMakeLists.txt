@@ -69,13 +69,19 @@ add_custom_command(
 )
 
 # 実行ファイル作成
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+add_executable(${PROJECT_NAME} WIN32 ${SOURCES} ${HEADERS})
 
 # インクルードディレクトリ
 target_include_directories(${PROJECT_NAME} PRIVATE
-    src
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/app
+    ${CMAKE_SOURCE_DIR}/src/gfx
+    ${CMAKE_SOURCE_DIR}/src/ui
     ${D3D12SDKPath}/include
 )
+
+# Unicode定義
+target_compile_definitions(${PROJECT_NAME} PRIVATE UNICODE _UNICODE)
 
 # ライブラリリンク
 find_package(fmt CONFIG REQUIRED)
@@ -88,8 +94,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     fmt::fmt
     spdlog::spdlog
     imgui::imgui
-    directxtex::directxtex
-    directxtk12::directxtk12
+    Microsoft::DirectXTex
+    Microsoft::DirectXTK12
     d3d12
     dxgi
     d3dcompiler

@@ -20,31 +20,25 @@ namespace jisaku
         m_hInstance = hInstance;
 
         // ウィンドウクラス登録
-        WNDCLASSEX wc = {};
-        wc.cbSize = sizeof(WNDCLASSEX);
+        WNDCLASSEXW wc{ sizeof(WNDCLASSEXW) };
         wc.style = CS_HREDRAW | CS_VREDRAW;
-        wc.lpfnWndProc = WindowProc;
+        wc.lpfnWndProc = &jisaku::App::WndProc;
         wc.hInstance = hInstance;
         wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
         wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-        wc.lpszClassName = L"JisakuEngineWindow";
+        wc.lpszClassName = L"JisakuWindowClass";
 
-        if (!RegisterClassEx(&wc))
+        if (!RegisterClassExW(&wc))
         {
             spdlog::error("Failed to register window class");
             return false;
         }
 
         // ウィンドウ作成
-        m_hwnd = CreateWindowEx(
-            0,
-            L"JisakuEngineWindow",
-            L"JisakuEngine",
-            WS_OVERLAPPEDWINDOW,
-            CW_USEDEFAULT, CW_USEDEFAULT,
-            1280, 720,
-            nullptr, nullptr,
-            hInstance, this
+        m_hwnd = CreateWindowExW(
+            0, L"JisakuWindowClass", L"JisakuEngine",
+            WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720,
+            nullptr, nullptr, hInstance, this
         );
 
         if (!m_hwnd)
@@ -53,8 +47,17 @@ namespace jisaku
             return false;
         }
 
+        // ウィンドウを表示
         ShowWindow(m_hwnd, SW_SHOW);
         UpdateWindow(m_hwnd);
+        
+        // メッセージを処理してウィンドウを完全に初期化
+        MSG msg;
+        while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
+        {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        }
 
         // DX12Device初期化
         m_device = std::make_unique<DX12Device>();
@@ -64,19 +67,11 @@ namespace jisaku
             return false;
         }
 
-        // Swapchain初期化
+        // スワップチェーン初期化
         m_swapchain = std::make_unique<Swapchain>();
         if (!m_swapchain->Initialize(m_device.get(), m_hwnd))
         {
             spdlog::error("Failed to initialize Swapchain");
-            return false;
-        }
-
-        // ImGui初期化
-        m_imgui = std::make_unique<ImGuiLayer>();
-        if (!m_imgui->Initialize(m_device.get(), m_swapchain.get(), m_hwnd))
-        {
-            spdlog::error("Failed to initialize ImGui");
             return false;
         }
 
@@ -95,6 +90,7 @@ namespace jisaku
 
     int App::Run()
     {
+        spdlog::info("Entering main loop...");
         MSG msg = {};
         while (m_running)
         {
@@ -102,6 +98,7 @@ namespace jisaku
             {
                 if (msg.message == WM_QUIT)
                 {
+                    spdlog::info("Received WM_QUIT, exiting main loop");
                     m_running = false;
                     break;
                 }
@@ -117,10 +114,11 @@ namespace jisaku
             }
         }
 
+        spdlog::info("Main loop ended");
         return static_cast<int>(msg.wParam);
     }
 
-    LRESULT CALLBACK App::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
+    LRESULT CALLBACK App::WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
     {
         App* app = nullptr;
 
@@ -144,27 +142,50 @@ namespace jisaku
                 PostQuitMessage(0);
                 return 0;
 
-            case WM_SIZE:
-                if (wParam != SIZE_MINIMIZED)
-                {
-                    // リサイズ処理
-                }
-                return 0;
+                    case WM_SIZE:
+                        if (wParam != SIZE_MINIMIZED)
+                        {
+                            // リサイズ処理：作成済みならResize、未作成なら初期化
+                            if (app->m_swapchain)
+                            {
+                                if (app->m_swapchain->GetCurrentBackBuffer())
+                                {
+                                    UINT newW = LOWORD(lParam);
+                                    UINT newH = HIWORD(lParam);
+                                    if (newW == 0) newW = 1; // DXGIは0サイズ不可
+                                    if (newH == 0) newH = 1;
+                                    app->m_swapchain->Resize(newW, newH);
+                                }
+                                else
+                                {
+                                    if (app->m_swapchain->Initialize(app->m_device.get(), hwnd) && app->m_renderPass)
+                                    {
+                                        app->m_renderPass->Initialize(app->m_device.get(), app->m_swapchain.get());
+                                    }
+                                }
+                            }
+                        }
+                        return 0;
             }
         }
 
-        return DefWindowProc(hwnd, uMsg, wParam, lParam);
+        return DefWindowProcW(hwnd, uMsg, wParam, lParam);
     }
 
     void App::Update()
     {
-        m_imgui->Update();
+        // 現在は何もしない
     }
 
     void App::Render()
     {
-        m_renderPass->Execute();
-        m_imgui->Render();
-        m_swapchain->Present();
+        // スワップチェーンが初期化されている場合のみレンダリング
+        if (m_swapchain && m_swapchain->GetCurrentBackBuffer())
+        {
+            const float clear[4] = { 0.392f, 0.584f, 0.929f, 1.0f }; // CornflowerBlue-ish
+            m_device->BeginFrame();
+            m_renderPass->Execute(m_device->GetCommandList(), *m_swapchain, clear);
+            m_device->EndFrameAndPresent(*m_swapchain, true); // VSync有効
+        }
     }
 }

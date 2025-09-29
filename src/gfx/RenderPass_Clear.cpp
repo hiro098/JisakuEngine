@@ -23,44 +23,36 @@ namespace jisaku
         return true;
     }
 
-    void RenderPass_Clear::Execute()
+    void RenderPass_Clear::Execute(ID3D12GraphicsCommandList* cmd, Swapchain& swap, const float clear[4])
     {
-        // コマンドアロケーターをリセット
-        m_device->GetCommandAllocator()->Reset();
+        // Present -> RenderTarget
+        auto back = swap.GetCurrentBackBuffer();
+        D3D12_RESOURCE_BARRIER toRT = {};
+        toRT.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        toRT.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        toRT.Transition.pResource = back;
+        toRT.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        toRT.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        toRT.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        cmd->ResourceBarrier(1, &toRT);
 
-        // コマンドリストをリセット
-        m_device->GetCommandList()->Reset(m_device->GetCommandAllocator(), nullptr);
+        auto rtv = swap.GetCurrentRTV();
+        cmd->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
+        D3D12_VIEWPORT vp{ 0.0f, 0.0f, (float)swap.GetWidth(), (float)swap.GetHeight(), 0.0f, 1.0f };
+        D3D12_RECT sc{ 0, 0, (LONG)swap.GetWidth(), (LONG)swap.GetHeight() };
+        cmd->RSSetViewports(1, &vp);
+        cmd->RSSetScissorRects(1, &sc);
 
-        // リソースバリア設定（レンダーターゲットへの遷移）
-        D3D12_RESOURCE_BARRIER barrier = {};
-        barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-        barrier.Transition.pResource = m_swapchain->GetBackBuffer(m_swapchain->GetCurrentBackBufferIndex());
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
-        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        cmd->ClearRenderTargetView(rtv, clear, 0, nullptr);
 
-        m_device->GetCommandList()->ResourceBarrier(1, &barrier);
-
-        // レンダーターゲットを設定
-        D3D12_CPU_DESCRIPTOR_HANDLE rtvHandle = m_swapchain->GetRTVHandle(m_swapchain->GetCurrentBackBufferIndex());
-        m_device->GetCommandList()->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
-
-        // バックバッファを青でクリア
-        const float clearColor[] = { 0.392f, 0.584f, 0.929f, 1.0f };
-        m_device->GetCommandList()->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
-
-        // リソースバリア設定（プレゼントへの遷移）
-        barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
-        barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
-
-        m_device->GetCommandList()->ResourceBarrier(1, &barrier);
-
-        // コマンドリストを閉じる
-        m_device->GetCommandList()->Close();
-
-        // コマンドを実行
-        ID3D12CommandList* commandLists[] = { m_device->GetCommandList() };
-        m_device->GetCommandQueue()->ExecuteCommandLists(1, commandLists);
+        // RenderTarget -> Present
+        D3D12_RESOURCE_BARRIER toPresent = {};
+        toPresent.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        toPresent.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        toPresent.Transition.pResource = back;
+        toPresent.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+        toPresent.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+        toPresent.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        cmd->ResourceBarrier(1, &toPresent);
     }
 }

@@ -20,6 +20,14 @@ namespace jisaku
         ID3D12CommandQueue* GetCommandQueue() const { return m_commandQueue.Get(); }
         ID3D12CommandAllocator* GetCommandAllocator() const { return m_commandAllocator.Get(); }
         ID3D12GraphicsCommandList* GetCommandList() const { return m_commandList.Get(); }
+        Microsoft::WRL::ComPtr<IDXGIFactory6> GetFactory() const { return m_factory; }
+        
+        // 新しいAPI
+        ID3D12CommandQueue* GetQueue() const { return m_commandQueue.Get(); }
+        ID3D12CommandAllocator* GetCmdAlloc(UINT /*frameIndex*/) const { return m_commandAllocator.Get(); }
+        UINT GetFrameIndex() const { return m_frameIndex; }
+        void BeginFrame();
+        void EndFrameAndPresent(class Swapchain& swap, bool vsync);
 
     private:
         bool CreateDevice();
@@ -27,10 +35,11 @@ namespace jisaku
         bool CreateCommandAllocator();
         bool CreateCommandList();
 
-        Microsoft::WRL::ComPtr<IDXGIFactory4> m_factory;
+        Microsoft::WRL::ComPtr<IDXGIFactory6> m_factory;
         Microsoft::WRL::ComPtr<ID3D12Device> m_device;
         Microsoft::WRL::ComPtr<ID3D12CommandQueue> m_commandQueue;
         Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_commandAllocator;
         Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_commandList;
+        UINT m_frameIndex;
     };
 }

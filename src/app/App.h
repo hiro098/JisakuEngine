@@ -21,7 +21,7 @@ namespace jisaku
         int Run();
 
     private:
-        static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+        static LRESULT CALLBACK WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
         void Update();
         void Render();
 

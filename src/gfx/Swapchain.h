@@ -23,6 +23,12 @@ namespace jisaku
 
         ID3D12Resource* GetBackBuffer(UINT index) const;
         D3D12_CPU_DESCRIPTOR_HANDLE GetRTVHandle(UINT index) const;
+        UINT GetCurrentBackBufferIndex() const;
+        ID3D12Resource* GetCurrentBackBuffer() const;
+        D3D12_CPU_DESCRIPTOR_HANDLE GetCurrentRTV() const;
+        UINT GetWidth() const { return m_width; }
+        UINT GetHeight() const { return m_height; }
+        void Present(bool vsync);
 
     private:
         bool CreateSwapchain(HWND hwnd);
@@ -30,7 +36,7 @@ namespace jisaku
         bool CreateRTVs();
 
         DX12Device* m_device;
-        Microsoft::WRL::ComPtr<IDXGISwapChain3> m_swapchain;
+        Microsoft::WRL::ComPtr<IDXGISwapChain3> m_swapChain;
         Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_rtvHeap;
         Microsoft::WRL::ComPtr<ID3D12Resource> m_backBuffers[2];
         UINT m_rtvDescriptorSize;

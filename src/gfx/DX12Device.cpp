@@ -1,11 +1,12 @@
 #include "DX12Device.h"
+#include "Swapchain.h"
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <spdlog/spdlog.h>
 
 namespace jisaku
 {
-    DX12Device::DX12Device()
+    DX12Device::DX12Device() : m_frameIndex(0)
     {
     }
 
@@ -150,5 +151,20 @@ namespace jisaku
         // コマンドリストを閉じる（初期状態）
         m_commandList->Close();
         return true;
+    }
+
+    void DX12Device::BeginFrame()
+    {
+        m_commandAllocator->Reset();
+        m_commandList->Reset(m_commandAllocator.Get(), nullptr);
+    }
+
+    void DX12Device::EndFrameAndPresent(Swapchain& swap, bool vsync)
+    {
+        m_commandList->Close();
+        ID3D12CommandList* lists[] = { m_commandList.Get() };
+        m_commandQueue->ExecuteCommandLists(1, lists);
+        swap.Present(vsync);
+        m_frameIndex = (m_frameIndex + 1) % 2; // ダブルバッファリング
     }
 }

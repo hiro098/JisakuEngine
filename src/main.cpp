@@ -2,7 +2,7 @@
 #include "app/App.h"
 #include <spdlog/spdlog.h>
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR /*lpCmdLine*/, int /*nCmdShow*/)
 {
     // ログ設定
     spdlog::set_level(spdlog::level::debug);
@@ -17,6 +17,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             return -1;
         }
 
+        spdlog::info("Application initialized successfully, starting main loop...");
         return app.Run();
     }
     catch (const std::exception& e)

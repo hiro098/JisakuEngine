@@ -1,6 +1,6 @@
 #include "ImGuiLayer.h"
-#include "DX12Device.h"
-#include "Swapchain.h"
+#include "gfx/DX12Device.h"
+#include "gfx/Swapchain.h"
 #include <imgui.h>
 #include <imgui_impl_win32.h>
 #include <imgui_impl_dx12.h>
@@ -35,7 +35,7 @@ namespace jisaku
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO();
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-        io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+        // io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
         // ImGuiスタイル設定
         SetupImGuiStyle();

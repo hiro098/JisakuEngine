@@ -15,7 +15,7 @@ namespace jisaku
         ~RenderPass_Clear();
 
         bool Initialize(DX12Device* device, Swapchain* swapchain);
-        void Execute();
+        void Execute(ID3D12GraphicsCommandList* cmd, Swapchain& swap, const float clear[4]);
 
     private:
         DX12Device* m_device;
