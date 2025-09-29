@@ -3,6 +3,7 @@
 #include "gfx/Swapchain.h"
 #include "gfx/RenderPass_Clear.h"
 #include "gfx/RenderPass_Triangle.h"
+#include "gfx/RenderPass_TexturedQuad.h"
 #include "ui/ImGuiLayer.h"
 #include "imgui_impl_win32.h"
 #include <spdlog/spdlog.h>
@@ -92,6 +93,14 @@ namespace jisaku
         if (!m_trianglePass->Initialize(m_device.get(), m_swapchain.get()))
         {
             spdlog::error("Failed to initialize RenderPass_Triangle");
+            return false;
+        }
+
+        // TexturedQuad初期化
+        m_texQuad = std::make_unique<RenderPass_TexturedQuad>();
+        if (!m_texQuad->Initialize(m_device.get(), m_swapchain.get()))
+        {
+            spdlog::error("Failed to initialize RenderPass_TexturedQuad");
             return false;
         }
 
@@ -223,6 +232,7 @@ namespace jisaku
             m_imgui.NewFrame();
             m_renderPass->Execute(m_device->GetCommandList(), *m_swapchain, clear);
             m_trianglePass->Execute(m_device->GetCommandList(), *m_swapchain);
+            m_texQuad->Execute(m_device->GetCommandList(), *m_swapchain);
             m_imgui.Render(m_device->GetCommandList());
             m_device->EndFrameAndPresent(*m_swapchain, true); // VSync有効
         }

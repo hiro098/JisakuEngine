@@ -11,6 +11,7 @@ namespace jisaku
     class Swapchain;
     class RenderPass_Clear;
     class RenderPass_Triangle;
+    class RenderPass_TexturedQuad;
 
     class App
     {
@@ -36,5 +37,6 @@ namespace jisaku
         ImGuiLayer m_imgui;
         std::unique_ptr<RenderPass_Clear> m_renderPass;
         std::unique_ptr<RenderPass_Triangle> m_trianglePass;
+        std::unique_ptr<RenderPass_TexturedQuad> m_texQuad;
     };
 }

@@ -49,6 +49,8 @@ set(SOURCES
     src/gfx/Swapchain.cpp
     src/gfx/RenderPass_Clear.cpp
     src/gfx/RenderPass_Triangle.cpp
+    src/gfx/RenderPass_TexturedQuad.cpp
+    src/gfx/TextureLoader.cpp
     src/ui/ImGuiLayer.cpp
 )
 
@@ -59,6 +61,8 @@ set(HEADERS
     src/gfx/Swapchain.h
     src/gfx/RenderPass_Clear.h
     src/gfx/RenderPass_Triangle.h
+    src/gfx/RenderPass_TexturedQuad.h
+    src/gfx/TextureLoader.h
     src/ui/ImGuiLayer.h
 )
 
@@ -75,6 +79,13 @@ add_custom_command(
     COMMAND ${DXC_EXECUTABLE} -T vs_6_0 -E VSMain -T ps_6_0 -E PSMain -Fo ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.cso ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.hlsl
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.hlsl
     COMMENT "Compiling Triangle.hlsl"
+)
+
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_SOURCE_DIR}/shaders/TexturedQuad.cso
+    COMMAND ${DXC_EXECUTABLE} -T vs_6_0 -E VSMain -T ps_6_0 -E PSMain -Fo ${CMAKE_CURRENT_SOURCE_DIR}/shaders/TexturedQuad.cso ${CMAKE_CURRENT_SOURCE_DIR}/shaders/TexturedQuad.hlsl
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/shaders/TexturedQuad.hlsl
+    COMMENT "Compiling TexturedQuad.hlsl"
 )
 
 # 実行ファイル作成
@@ -111,9 +122,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 # シェーダーファイルをビルドに含める
-add_custom_target(shaders ALL DEPENDS 
+add_custom_target(shaders ALL DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fullscreen.cso
     ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Triangle.cso
+    ${CMAKE_CURRENT_SOURCE_DIR}/shaders/TexturedQuad.cso
 )
 
 # Agility SDK DLLをコピー（存在する場合のみ）
