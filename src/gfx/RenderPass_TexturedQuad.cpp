@@ -28,19 +28,25 @@ namespace jisaku
         m_device = device;
         HRESULT hr;
 
-        // ルートシグネチャ作成（SRVテーブル1個＋静的サンプラ）
+        // ルートシグネチャ作成（CBV(b0) + SRVテーブル(t0) + 静的サンプラ）
         D3D12_DESCRIPTOR_RANGE srvRange = {};
         srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
         srvRange.NumDescriptors = 1;
-        srvRange.BaseShaderRegister = 0;
+        srvRange.BaseShaderRegister = 0; // t0
         srvRange.RegisterSpace = 0;
         srvRange.OffsetInDescriptorsFromTableStart = 0;
 
-        D3D12_ROOT_PARAMETER rootParams[1] = {};
-        rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        rootParams[0].DescriptorTable.NumDescriptorRanges = 1;
-        rootParams[0].DescriptorTable.pDescriptorRanges = &srvRange;
-        rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        D3D12_ROOT_PARAMETER rootParams[2] = {};
+        // slot 0: CBV b0
+        rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        rootParams[0].Descriptor.ShaderRegister = 0; // b0
+        rootParams[0].Descriptor.RegisterSpace = 0;
+        rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+        // slot 1: SRV table t0
+        rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        rootParams[1].DescriptorTable.NumDescriptorRanges = 1;
+        rootParams[1].DescriptorTable.pDescriptorRanges = &srvRange;
+        rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_STATIC_SAMPLER_DESC staticSampler = {};
         staticSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -53,7 +59,7 @@ namespace jisaku
         staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
-        rootSignatureDesc.NumParameters = 1;
+        rootSignatureDesc.NumParameters = 2;
         rootSignatureDesc.pParameters = rootParams;
         rootSignatureDesc.NumStaticSamplers = 1;
         rootSignatureDesc.pStaticSamplers = &staticSampler;
@@ -160,6 +166,35 @@ namespace jisaku
             spdlog::error("Failed to create pipeline state: 0x{:x}", hr);
             return false;
         }
+
+        // 定数バッファ（アップロード）確保（64KB）
+        D3D12_HEAP_PROPERTIES cbHeap{};
+        cbHeap.Type = D3D12_HEAP_TYPE_UPLOAD;
+        cbHeap.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        cbHeap.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+        cbHeap.CreationNodeMask = 1;
+        cbHeap.VisibleNodeMask = 1;
+        D3D12_RESOURCE_DESC cbDesc{};
+        cbDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        cbDesc.Alignment = 0;
+        cbDesc.Width = 65536;
+        cbDesc.Height = 1;
+        cbDesc.DepthOrArraySize = 1;
+        cbDesc.MipLevels = 1;
+        cbDesc.Format = DXGI_FORMAT_UNKNOWN;
+        cbDesc.SampleDesc.Count = 1;
+        cbDesc.SampleDesc.Quality = 0;
+        cbDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        cbDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+        HRESULT cbr = m_device->GetDevice()->CreateCommittedResource(
+            &cbHeap, D3D12_HEAP_FLAG_NONE, &cbDesc,
+            D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+            IID_PPV_ARGS(&m_cbUpload));
+        if (FAILED(cbr)) {
+            spdlog::error("Failed to create CB upload: 0x{:x}", cbr);
+            return false;
+        }
+        m_cbGpuVA = m_cbUpload->GetGPUVirtualAddress();
 
         // 頂点バッファ作成（四角形）
         Vertex quadVertices[] = {
@@ -343,14 +378,42 @@ namespace jisaku
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
         cmd->SetPipelineState(m_pipelineState.Get());
 
-        // ③SRV テーブルを ルートパラメータ[0] に渡す
+        // ③CBV(b0) を ルートパラメータ[0] に渡す（毎フレーム更新）
+        // MVP計算（正射影 + S*R*T）
+        using namespace DirectX;
+        float w = (float)swap.GetWidth();
+        float h = (float)swap.GetHeight();
+        XMMATRIX ortho = XMMatrixOrthographicOffCenterLH(0.0f, w, h, 0.0f, 0.0f, 1.0f);
+        float rad = XMConvertToRadians(m_rotDeg);
+        // 頂点はNDC基準(-0.5..0.5)なので、ピクセル相当で拡縮する
+        // scaleに指定された値をそのままピクセルとして扱うため、
+        // NDC基準の四角(1.0)を画面ピクセルに合わせる換算を加味
+        float sx = m_scaleX;
+        float sy = m_scaleY;
+        XMMATRIX S = XMMatrixScaling(sx, sy, 1.0f);
+        XMMATRIX R = XMMatrixRotationZ(rad);
+        XMMATRIX T = XMMatrixTranslation(m_transX + w * 0.5f, m_transY + h * 0.5f, 0.0f);
+        XMMATRIX M = S * R * T;
+        XMMATRIX MVP = M * ortho;
+        XMFLOAT4X4 mvpOut;
+        XMStoreFloat4x4(&mvpOut, XMMatrixTranspose(MVP));
+
+        void* mapped = nullptr;
+        D3D12_RANGE rr{0,0};
+        if (SUCCEEDED(m_cbUpload->Map(0, &rr, &mapped))) {
+            memcpy(mapped, &mvpOut, sizeof(mvpOut));
+            m_cbUpload->Unmap(0, nullptr);
+        }
+        cmd->SetGraphicsRootConstantBufferView(0, m_cbGpuVA);
+
+        // ④SRV テーブルを ルートパラメータ[1] に渡す
         D3D12_GPU_DESCRIPTOR_HANDLE gpuSrv = m_texture.srvGPU;
         if (m_activeSlot != UINT32_MAX && m_textureLoader->IsValidSlot(m_activeSlot)) {
             gpuSrv = { m_textureLoader->GetSrvHeap()->GetGPUDescriptorHandleForHeapStart().ptr +
                        UINT64(m_activeSlot) * UINT64(m_textureLoader->GetDescriptorSize()) };
         }
-        cmd->SetGraphicsRootDescriptorTable(0, gpuSrv);
-        spdlog::info("SetGraphicsRootDescriptorTable(0, {})", gpuSrv.ptr);
+        cmd->SetGraphicsRootDescriptorTable(1, gpuSrv);
+        spdlog::info("SetGraphicsRootDescriptorTable(1, {})", gpuSrv.ptr);
 
         // 頂点バッファ設定
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

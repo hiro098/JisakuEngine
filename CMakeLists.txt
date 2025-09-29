@@ -51,6 +51,7 @@ set(SOURCES
     src/gfx/RenderPass_Triangle.cpp
     src/gfx/RenderPass_TexturedQuad.cpp
     src/gfx/TextureLoader.cpp
+    src/gfx/GPUTimer.cpp
     src/ui/ImGuiLayer.cpp
 )
 

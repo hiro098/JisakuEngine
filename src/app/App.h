@@ -7,6 +7,7 @@
 #include <thread>
 #include "ui/ImGuiLayer.h"
 #include "gfx/TextureLoader.h"
+#include "gfx/GPUTimer.h"
 
 namespace jisaku
 {
@@ -58,5 +59,8 @@ namespace jisaku
         // 複数テクスチャ管理
         std::vector<jisaku::TextureHandle> m_textures;
         int m_activeTex = -1;
+
+        // GPUタイマー
+        std::unique_ptr<jisaku::GPUTimer> m_gpuTimer;
     };
 }

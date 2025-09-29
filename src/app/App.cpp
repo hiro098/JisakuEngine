@@ -124,6 +124,10 @@ namespace jisaku
             return false;
         }
 
+        // GPUタイマー初期化
+        m_gpuTimer = std::make_unique<GPUTimer>();
+        m_gpuTimer->Init(m_device.get(), 32);
+
         m_running = true;
         spdlog::info("Application initialized successfully");
         return true;
@@ -258,6 +262,7 @@ namespace jisaku
 
             const float clear[4] = { 0.392f, 0.584f, 0.929f, 1.0f }; // CornflowerBlue-ish
             m_device->BeginFrame();
+            if (m_gpuTimer) m_gpuTimer->NewFrame();
             m_imgui.NewFrame();
             
             // ImGuiデバッグウィンドウ
@@ -287,13 +292,33 @@ namespace jisaku
                 if (m_activeTex >= 0) {
                     ImGui::Text("Active: %d", m_activeTex);
                 }
+
+                // Transform controls (tx, ty, rot, sx, sy)
+                static float tx = 0.0f, ty = 0.0f, rot = 0.0f, sx = 256.0f, sy = 256.0f;
+                ImGui::SliderFloat("Trans X", &tx, -500.0f, 500.0f);
+                ImGui::SliderFloat("Trans Y", &ty, -500.0f, 500.0f);
+                ImGui::SliderFloat("Rotate(deg)", &rot, -180.0f, 180.0f);
+                ImGui::SliderFloat("Scale X", &sx, 0.1f, 5.0f);
+                ImGui::SliderFloat("Scale Y", &sy, 0.1f, 5.0f);
+                if (m_texQuad) m_texQuad->SetTransform(tx, ty, rot, sx, sy);
             }
             ImGui::End();
+            if (m_gpuTimer) m_gpuTimer->DrawImGui();
             
+            if (m_gpuTimer) m_gpuTimer->Begin(m_device->GetCommandList(), "Clear");
             m_renderPass->Execute(m_device->GetCommandList(), *m_swapchain, clear);
+            if (m_gpuTimer) m_gpuTimer->End(m_device->GetCommandList(), "Clear");
+            if (m_gpuTimer) m_gpuTimer->Begin(m_device->GetCommandList(), "TexturedQuad");
             m_texQuad->Execute(m_device->GetCommandList(), *m_swapchain);
+            if (m_gpuTimer) m_gpuTimer->End(m_device->GetCommandList(), "TexturedQuad");
+
+            if (m_gpuTimer) m_gpuTimer->Begin(m_device->GetCommandList(), "ImGui");
             m_imgui.Render(m_device->GetCommandList());
+            if (m_gpuTimer) m_gpuTimer->End(m_device->GetCommandList(), "ImGui");
+
+            if (m_gpuTimer) m_gpuTimer->Resolve(m_device->GetCommandList());
             m_device->EndFrameAndPresent(*m_swapchain, true); // VSync有効
+            if (m_gpuTimer) m_gpuTimer->Collect();
         }
     }
 }
