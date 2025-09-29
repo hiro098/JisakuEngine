@@ -8,7 +8,7 @@ namespace jisaku
 {
     bool TextureLoader::Init(ID3D12Device* dev)
     {
-        // SRV heap作成
+        // SRV heap作成（1個のみ）
         D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
         srvHeapDesc.NumDescriptors = 1;
         srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -20,34 +20,6 @@ namespace jisaku
             spdlog::error("Failed to create SRV heap: 0x{:x}", hr);
             return false;
         }
-
-        // Sampler heap作成
-        D3D12_DESCRIPTOR_HEAP_DESC sampHeapDesc = {};
-        sampHeapDesc.NumDescriptors = 1;
-        sampHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
-        sampHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-
-        hr = dev->CreateDescriptorHeap(&sampHeapDesc, IID_PPV_ARGS(&m_sampHeap));
-        if (FAILED(hr))
-        {
-            spdlog::error("Failed to create Sampler heap: 0x{:x}", hr);
-            return false;
-        }
-
-        // デフォルトサンプラ作成
-        D3D12_SAMPLER_DESC sampDesc = {};
-        sampDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-        sampDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-        sampDesc.MinLOD = 0;
-        sampDesc.MaxLOD = D3D12_FLOAT32_MAX;
-        sampDesc.MipLODBias = 0.0f;
-        sampDesc.MaxAnisotropy = 1;
-        sampDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-
-        D3D12_CPU_DESCRIPTOR_HANDLE sampHandle = m_sampHeap->GetCPUDescriptorHandleForHeapStart();
-        dev->CreateSampler(&sampDesc, sampHandle);
 
         m_srvInc = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         return true;
@@ -209,6 +181,7 @@ namespace jisaku
         srvDesc.Texture2D.MostDetailedMip = 0;
         srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
+        // SRVをヒープの先頭に作成
         handle.srvCPU = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
         handle.srvGPU = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
         dev->CreateShaderResourceView(handle.resource.Get(), &srvDesc, handle.srvCPU);
@@ -221,8 +194,4 @@ namespace jisaku
         return m_srvHeap.Get();
     }
 
-    ID3D12DescriptorHeap* TextureLoader::GetSamplerHeap()
-    {
-        return m_sampHeap.Get();
-    }
 }

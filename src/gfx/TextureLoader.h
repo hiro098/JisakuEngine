@@ -20,11 +20,9 @@ namespace jisaku
         TextureHandle CreateCheckerboard(ID3D12Device* dev, ID3D12GraphicsCommandList* cmd,
                                          uint32_t size = 256, uint32_t cell = 32);
         ID3D12DescriptorHeap* GetSrvHeap() const;
-        ID3D12DescriptorHeap* GetSamplerHeap();
 
     private:
         Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-        Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_sampHeap;
         UINT m_srvInc = 0;
     };
 }

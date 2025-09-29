@@ -28,37 +28,35 @@ namespace jisaku
         m_device = device;
         HRESULT hr;
 
-        // ルートシグネチャ作成
+        // ルートシグネチャ作成（SRVテーブル1個＋静的サンプラ）
         D3D12_DESCRIPTOR_RANGE srvRange = {};
         srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
         srvRange.NumDescriptors = 1;
         srvRange.BaseShaderRegister = 0;
         srvRange.RegisterSpace = 0;
-        srvRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        srvRange.OffsetInDescriptorsFromTableStart = 0;
 
-        D3D12_DESCRIPTOR_RANGE samplerRange = {};
-        samplerRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
-        samplerRange.NumDescriptors = 1;
-        samplerRange.BaseShaderRegister = 0;
-        samplerRange.RegisterSpace = 0;
-        samplerRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
-
-        D3D12_ROOT_PARAMETER rootParams[2] = {};
+        D3D12_ROOT_PARAMETER rootParams[1] = {};
         rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         rootParams[0].DescriptorTable.NumDescriptorRanges = 1;
         rootParams[0].DescriptorTable.pDescriptorRanges = &srvRange;
         rootParams[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
-        rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-        rootParams[1].DescriptorTable.NumDescriptorRanges = 1;
-        rootParams[1].DescriptorTable.pDescriptorRanges = &samplerRange;
-        rootParams[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+        D3D12_STATIC_SAMPLER_DESC staticSampler = {};
+        staticSampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        staticSampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        staticSampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        staticSampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+        staticSampler.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        staticSampler.ShaderRegister = 0;
+        staticSampler.RegisterSpace = 0;
+        staticSampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
         D3D12_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
-        rootSignatureDesc.NumParameters = 2;
+        rootSignatureDesc.NumParameters = 1;
         rootSignatureDesc.pParameters = rootParams;
-        rootSignatureDesc.NumStaticSamplers = 0;
-        rootSignatureDesc.pStaticSamplers = nullptr;
+        rootSignatureDesc.NumStaticSamplers = 1;
+        rootSignatureDesc.pStaticSamplers = &staticSampler;
         rootSignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
         Microsoft::WRL::ComPtr<ID3DBlob> signature;
@@ -315,14 +313,12 @@ namespace jisaku
         cmd->SetPipelineState(m_pipelineState.Get());
         cmd->SetGraphicsRootSignature(m_rootSignature.Get());
 
-        // デスクリプタヒープ設定
-        ID3D12DescriptorHeap* heaps[] = { m_textureLoader->GetSrvHeap(), m_textureLoader->GetSamplerHeap() };
-        cmd->SetDescriptorHeaps(2, heaps);
+        // デスクリプタヒープ設定（SRVヒープのみ）
+        ID3D12DescriptorHeap* heaps[] = { m_textureLoader->GetSrvHeap() };
+        cmd->SetDescriptorHeaps(1, heaps);
 
-        // ルートパラメータ設定
+        // ルートパラメータ設定（SRVテーブルのみ、サンプラは静的）
         cmd->SetGraphicsRootDescriptorTable(0, m_texture.srvGPU); // t0
-        D3D12_GPU_DESCRIPTOR_HANDLE samplerHandle = m_textureLoader->GetSamplerHeap()->GetGPUDescriptorHandleForHeapStart();
-        cmd->SetGraphicsRootDescriptorTable(1, samplerHandle); // s0
 
         // 頂点バッファ設定
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
