@@ -9,29 +9,42 @@ namespace jisaku
 {
     bool TextureLoader::Init(ID3D12Device* dev)
     {
-        // SRV heap作成（1個のみ、shader-visible必須）
-        D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-        srvHeapDesc.NumDescriptors = 1;
-        srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-        srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-
-        HRESULT hr = dev->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&m_srvHeap));
-        if (FAILED(hr))
-        {
+        // 複数スロットのSRVヒープを確保
+        m_capacity = 64;
+        D3D12_DESCRIPTOR_HEAP_DESC desc{};
+        desc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        desc.NumDescriptors = m_capacity;
+        desc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+        HRESULT hr = dev->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&m_srvHeap));
+        if (FAILED(hr)) {
             spdlog::error("Failed to create SRV heap: 0x{:x}", hr);
             return false;
         }
-
-        // ヒープがshader-visibleであることを確認
-        auto desc = m_srvHeap->GetDesc();
-        if ((desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) == 0)
-        {
-            spdlog::error("SRV heap is not shader-visible!");
-            return false;
-        }
-
         m_srvInc = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        m_used.assign(m_capacity, false);
         return true;
+    }
+
+    uint32_t TextureLoader::AllocateSlot_()
+    {
+        for (uint32_t i = 0; i < m_capacity; ++i) {
+            if (!m_used[i]) { m_used[i] = true; return i; }
+        }
+        return UINT32_MAX;
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE TextureLoader::CpuHandleOf_(uint32_t slot) const
+    {
+        auto base = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+        D3D12_CPU_DESCRIPTOR_HANDLE h{ base.ptr + SIZE_T(slot) * SIZE_T(m_srvInc) };
+        return h;
+    }
+
+    D3D12_GPU_DESCRIPTOR_HANDLE TextureLoader::GpuHandleOf_(uint32_t slot) const
+    {
+        auto base = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE h{ base.ptr + UINT64(slot) * UINT64(m_srvInc) };
+        return h;
     }
 
     TextureHandle TextureLoader::CreateCheckerboard(ID3D12Device* dev, ID3D12GraphicsCommandList* cmd,
@@ -222,12 +235,17 @@ namespace jisaku
         srvDesc.Texture2D.MostDetailedMip = 0;
         srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 
-        // SRVをヒープの先頭に作成
-        handle.srvCPU = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
-        handle.srvGPU = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+        // スロット確保してSRV作成
+        uint32_t slot = AllocateSlot_();
+        if (slot == UINT32_MAX) {
+            spdlog::error("SRV heap is full for checkerboard");
+            return handle;
+        }
+        handle.srvCPU = CpuHandleOf_(slot);
+        handle.srvGPU = GpuHandleOf_(slot);
+        handle.slot   = slot;
         dev->CreateShaderResourceView(handle.resource.Get(), &srvDesc, handle.srvCPU);
-        spdlog::info("SRV created at CPU handle: {}, GPU handle: {}", 
-                     handle.srvCPU.ptr, handle.srvGPU.ptr);
+        spdlog::info("SRV created at slot {}, CPU:{}, GPU:{}", slot, handle.srvCPU.ptr, handle.srvGPU.ptr);
 
         return handle;
     }
@@ -391,7 +409,7 @@ namespace jisaku
             barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
             cmd->ResourceBarrier(1, &barrier);
 
-            // SRVをshader-visibleヒープ先頭に作成
+            // SRVをスロットに作成
             spdlog::info("Creating SRV...");
             DXGI_FORMAT fmt = meta.format;
             if (fmt == DXGI_FORMAT_B8G8R8A8_TYPELESS) fmt = forceSRGB ? DXGI_FORMAT_B8G8R8A8_UNORM_SRGB : DXGI_FORMAT_B8G8R8A8_UNORM;
@@ -403,13 +421,19 @@ namespace jisaku
             srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
             srv.Texture2D.MipLevels = (UINT)meta.mipLevels;
 
-            auto cpu = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+            uint32_t slot = AllocateSlot_();
+            if (slot == UINT32_MAX) {
+                spdlog::error("SRV heap is full");
+                return false;
+            }
+            auto cpu = CpuHandleOf_(slot);
             dev->CreateShaderResourceView(tex.Get(), &srv, cpu);
 
             // ハンドル更新
             out.resource = tex;
             out.srvCPU = cpu;
-            out.srvGPU = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+            out.srvGPU = GpuHandleOf_(slot);
+            out.slot = slot;
 
             // アップロード寿命を保持（GPU完了後にFlushUploadsで解放）
             m_pendingUploads.push_back(upload);

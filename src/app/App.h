@@ -54,5 +54,9 @@ namespace jisaku
         std::atomic<bool> m_loadedReady{ false };
         TextureHandle m_loadedTemp;
         std::thread m_loaderThread;
+
+        // 複数テクスチャ管理
+        std::vector<jisaku::TextureHandle> m_textures;
+        int m_activeTex = -1;
     };
 }

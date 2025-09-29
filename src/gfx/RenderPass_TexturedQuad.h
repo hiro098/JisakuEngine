@@ -19,6 +19,8 @@ namespace jisaku
         bool Initialize(DX12Device* device, Swapchain* swapchain);
         void Execute(ID3D12GraphicsCommandList* cmd, Swapchain& swap);
         void SetTexture(const TextureHandle& h);
+        void SetActiveSlot(uint32_t slot);
+        uint32_t GetActiveSlot() const { return m_activeSlot; }
         TextureLoader* GetTextureLoader() const { return m_textureLoader.get(); }
 
     private:
@@ -31,5 +33,6 @@ namespace jisaku
         D3D12_INDEX_BUFFER_VIEW m_indexBufferView;
         std::unique_ptr<TextureLoader> m_textureLoader;
         TextureHandle m_texture;
+        uint32_t m_activeSlot = UINT32_MAX;
     };
 }

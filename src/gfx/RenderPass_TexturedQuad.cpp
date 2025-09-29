@@ -344,7 +344,11 @@ namespace jisaku
         cmd->SetPipelineState(m_pipelineState.Get());
 
         // ③SRV テーブルを ルートパラメータ[0] に渡す
-        auto gpuSrv = m_textureLoader->GetSrvHeap()->GetGPUDescriptorHandleForHeapStart();
+        D3D12_GPU_DESCRIPTOR_HANDLE gpuSrv = m_texture.srvGPU;
+        if (m_activeSlot != UINT32_MAX && m_textureLoader->IsValidSlot(m_activeSlot)) {
+            gpuSrv = { m_textureLoader->GetSrvHeap()->GetGPUDescriptorHandleForHeapStart().ptr +
+                       UINT64(m_activeSlot) * UINT64(m_textureLoader->GetDescriptorSize()) };
+        }
         cmd->SetGraphicsRootDescriptorTable(0, gpuSrv);
         spdlog::info("SetGraphicsRootDescriptorTable(0, {})", gpuSrv.ptr);
 
@@ -368,5 +372,11 @@ namespace jisaku
     void RenderPass_TexturedQuad::SetTexture(const TextureHandle& h)
     {
         m_texture = h;
+        m_activeSlot = h.slot;
+    }
+
+    void RenderPass_TexturedQuad::SetActiveSlot(uint32_t slot)
+    {
+        m_activeSlot = slot;
     }
 }

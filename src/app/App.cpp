@@ -244,11 +244,16 @@ namespace jisaku
             if (!m_pendingTexturePath.empty()) {
                 auto path = m_pendingTexturePath; // 退避
                 m_pendingTexturePath.clear();
+                jisaku::TextureHandle h;
                 m_device->UploadAndWait([&](ID3D12GraphicsCommandList* cmd) {
-                    m_texQuad->GetTextureLoader()->LoadFromFile(m_device->GetDevice(), cmd, path, m_loadedTex, /*forceSRGB=*/true, /*generateMips=*/true);
+                    m_texQuad->GetTextureLoader()->LoadFromFile(m_device->GetDevice(), cmd, path, h, /*forceSRGB=*/true, /*generateMips=*/true);
                 });
                 m_texQuad->GetTextureLoader()->FlushUploads();
-                m_texQuad->SetTexture(m_loadedTex);
+                if (h.resource) {
+                    m_textures.push_back(h);
+                    m_activeTex = (int)m_textures.size() - 1;
+                    if (m_texQuad) m_texQuad->SetActiveSlot(h.slot);
+                }
             }
 
             const float clear[4] = { 0.392f, 0.584f, 0.929f, 1.0f }; // CornflowerBlue-ish
@@ -257,7 +262,7 @@ namespace jisaku
             
             // ImGuiデバッグウィンドウ
             if (ImGui::Begin("Debug")) {
-                if (ImGui::Button("Load Texture...")) {
+                if (ImGui::Button("Add Texture...")) {
                     wchar_t path[MAX_PATH] = {};
                     OPENFILENAMEW ofn{};
                     ofn.lStructSize = sizeof(ofn);
@@ -270,6 +275,17 @@ namespace jisaku
                         // フレーム外でメインスレッドが安全なタイミングで実行するため、パスのみ保持
                         m_pendingTexturePath = path;
                     }
+                }
+                for (int i = 0; i < (int)m_textures.size(); ++i) {
+                    char label[64]; sprintf_s(label, "Tex %d", i);
+                    bool selected = (m_activeTex == i);
+                    if (ImGui::Selectable(label, selected)) {
+                        m_activeTex = i;
+                        if (m_texQuad) m_texQuad->SetActiveSlot(m_textures[i].slot);
+                    }
+                }
+                if (m_activeTex >= 0) {
+                    ImGui::Text("Active: %d", m_activeTex);
                 }
             }
             ImGui::End();
