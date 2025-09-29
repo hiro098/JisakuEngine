@@ -3,6 +3,7 @@
 #include <d3d12.h>
 #include <wrl/client.h>
 #include <cstdint>
+#include <vector>
 
 namespace jisaku
 {
@@ -20,9 +21,11 @@ namespace jisaku
         TextureHandle CreateCheckerboard(ID3D12Device* dev, ID3D12GraphicsCommandList* cmd,
                                          uint32_t size = 256, uint32_t cell = 32);
         ID3D12DescriptorHeap* GetSrvHeap() const;
+        void FlushUploads();
 
     private:
         Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap;
         UINT m_srvInc = 0;
+        std::vector<Microsoft::WRL::ComPtr<ID3D12Resource>> m_pendingUploads;
     };
 }

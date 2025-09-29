@@ -6,5 +6,10 @@ PSIn VSMain(VSIn i){
 Texture2D    gTex  : register(t0);
 SamplerState gSamp : register(s0);
 float4 PSMain(PSIn i):SV_TARGET{
-  return gTex.Sample(gSamp, i.uv);
+  float4 texColor = gTex.Sample(gSamp, i.uv);
+  if (texColor.r > 0.1 || texColor.g > 0.1) {
+    return texColor;
+  } else {
+    return float4(1, 0, 1, 1);
+  }
 }

@@ -231,7 +231,6 @@ namespace jisaku
             m_device->BeginFrame();
             m_imgui.NewFrame();
             m_renderPass->Execute(m_device->GetCommandList(), *m_swapchain, clear);
-            m_trianglePass->Execute(m_device->GetCommandList(), *m_swapchain);
             m_texQuad->Execute(m_device->GetCommandList(), *m_swapchain);
             m_imgui.Render(m_device->GetCommandList());
             m_device->EndFrameAndPresent(*m_swapchain, true); // VSync有効

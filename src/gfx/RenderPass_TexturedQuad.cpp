@@ -265,22 +265,47 @@ namespace jisaku
             return false;
         }
 
-        // チェッカーテクスチャ作成（アップロードはこの場で実行→待機まで行う）
-        m_texture = m_textureLoader->CreateCheckerboard(m_device->GetDevice(), m_device->GetCommandList(), 256, 32);
+        // テクスチャアップロード用に専用のコマンドアロケータ/コマンドリストを作成
+        Microsoft::WRL::ComPtr<ID3D12CommandAllocator> uploadAllocator;
+        HRESULT uploadHr = m_device->GetDevice()->CreateCommandAllocator(
+            D3D12_COMMAND_LIST_TYPE_DIRECT,
+            IID_PPV_ARGS(&uploadAllocator));
+        if (FAILED(uploadHr))
+        {
+            spdlog::error("Failed to create upload command allocator: 0x{:x}", uploadHr);
+            return false;
+        }
+
+        Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> uploadCmd;
+        uploadHr = m_device->GetDevice()->CreateCommandList(
+            0,
+            D3D12_COMMAND_LIST_TYPE_DIRECT,
+            uploadAllocator.Get(),
+            nullptr,
+            IID_PPV_ARGS(&uploadCmd));
+        if (FAILED(uploadHr))
+        {
+            spdlog::error("Failed to create upload command list: 0x{:x}", uploadHr);
+            return false;
+        }
+
+        // チェッカーテクスチャ作成
+        m_texture = m_textureLoader->CreateCheckerboard(m_device->GetDevice(), uploadCmd.Get(), 256, 32);
         if (!m_texture.resource)
         {
             spdlog::error("Failed to create checkerboard texture");
             return false;
         }
 
-        // ここでコピーバッチをGPUに送って完了を待つ（次のフレームで使用可能にするため）
-        ID3D12GraphicsCommandList* cmd = m_device->GetCommandList();
-        cmd->Close();
-        ID3D12CommandList* lists[] = { cmd };
+        // コマンドリストを閉じて実行
+        uploadCmd->Close();
+        ID3D12CommandList* lists[] = { uploadCmd.Get() };
         m_device->GetCommandQueue()->ExecuteCommandLists(1, lists);
         m_device->WaitIdle();
-        m_device->GetCommandAllocator()->Reset();
-        cmd->Reset(m_device->GetCommandAllocator(), nullptr);
+        spdlog::info("Texture upload commands executed and GPU is idle");
+
+        // アップロードリソースを解放（WaitIdleの後）
+        m_textureLoader->FlushUploads();
 
         spdlog::info("RenderPass_TexturedQuad initialized successfully");
         return true;
@@ -309,16 +334,19 @@ namespace jisaku
         cmd->RSSetViewports(1, &vp);
         cmd->RSSetScissorRects(1, &sc);
 
-        // パイプライン設定
-        cmd->SetPipelineState(m_pipelineState.Get());
-        cmd->SetGraphicsRootSignature(m_rootSignature.Get());
-
-        // デスクリプタヒープ設定（SRVヒープのみ）
+        // 描画直前の固定順序セット
+        // ①自前ヒープだけをセット（imgui等が上書きする可能性があるため）
         ID3D12DescriptorHeap* heaps[] = { m_textureLoader->GetSrvHeap() };
         cmd->SetDescriptorHeaps(1, heaps);
 
-        // ルートパラメータ設定（SRVテーブルのみ、サンプラは静的）
-        cmd->SetGraphicsRootDescriptorTable(0, m_texture.srvGPU); // t0
+        // ②ルート→PSO→IA→VP/Scissor
+        cmd->SetGraphicsRootSignature(m_rootSignature.Get());
+        cmd->SetPipelineState(m_pipelineState.Get());
+
+        // ③SRV テーブルを ルートパラメータ[0] に渡す
+        auto gpuSrv = m_textureLoader->GetSrvHeap()->GetGPUDescriptorHandleForHeapStart();
+        cmd->SetGraphicsRootDescriptorTable(0, gpuSrv);
+        spdlog::info("SetGraphicsRootDescriptorTable(0, {})", gpuSrv.ptr);
 
         // 頂点バッファ設定
         cmd->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

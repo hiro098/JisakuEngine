@@ -8,7 +8,7 @@ namespace jisaku
 {
     bool TextureLoader::Init(ID3D12Device* dev)
     {
-        // SRV heap作成（1個のみ）
+        // SRV heap作成（1個のみ、shader-visible必須）
         D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
         srvHeapDesc.NumDescriptors = 1;
         srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -21,6 +21,14 @@ namespace jisaku
             return false;
         }
 
+        // ヒープがshader-visibleであることを確認
+        auto desc = m_srvHeap->GetDesc();
+        if ((desc.Flags & D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE) == 0)
+        {
+            spdlog::error("SRV heap is not shader-visible!");
+            return false;
+        }
+
         m_srvInc = dev->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         return true;
     }
@@ -30,7 +38,7 @@ namespace jisaku
     {
         TextureHandle handle;
 
-        // CPUでチェッカーボード生成
+        // CPUでチェッカーボード生成（デバッグ用に色を変更）
         std::vector<uint8_t> pixels(size * size * 4);
         for (uint32_t y = 0; y < size; ++y)
         {
@@ -41,10 +49,15 @@ namespace jisaku
                 bool isWhite = (cellX + cellY) % 2 == 0;
                 
                 uint32_t index = (y * size + x) * 4;
-                uint8_t color = isWhite ? 255 : 0;
-                pixels[index + 0] = color; // R
-                pixels[index + 1] = color; // G
-                pixels[index + 2] = color; // B
+                if (isWhite) {
+                    pixels[index + 0] = 255; // R
+                    pixels[index + 1] = 0;   // G
+                    pixels[index + 2] = 0;   // B
+                } else {
+                    pixels[index + 0] = 0;   // R
+                    pixels[index + 1] = 255; // G
+                    pixels[index + 2] = 0;   // B
+                }
                 pixels[index + 3] = 255;   // A
             }
         }
@@ -106,6 +119,9 @@ namespace jisaku
             return handle;
         }
 
+        // アップロードリソースを未解放リストに追加
+        m_pendingUploads.push_back(uploadResource);
+
         // Default heap作成（テクスチャ）
         D3D12_HEAP_PROPERTIES defaultHeapProps = {};
         defaultHeapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
@@ -118,7 +134,7 @@ namespace jisaku
             &defaultHeapProps,
             D3D12_HEAP_FLAG_NONE,
             &texDesc,
-            D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATE_COMMON,
             nullptr,
             IID_PPV_ARGS(&handle.resource)
         );
@@ -127,14 +143,19 @@ namespace jisaku
             spdlog::error("Failed to create default resource: 0x{:x}", hr);
             return handle;
         }
+        spdlog::info("Default texture resource created with COMMON state");
 
-        // データをアップロード
+        // データをアップロード（デバッグ用にログ出力）
         D3D12_SUBRESOURCE_DATA subresourceData = {};
         subresourceData.pData = pixels.data();
         subresourceData.RowPitch = size * 4;
         subresourceData.SlicePitch = size * size * 4;
 
-        // 手動でUpdateSubresourcesを実装（既に計算済みのフットプリントを使用）
+        spdlog::info("Uploading texture: {}x{}, RowPitch={}, SlicePitch={}", 
+                     size, size, subresourceData.RowPitch, subresourceData.SlicePitch);
+        spdlog::info("Footprint: Offset={}, RowPitch={}, Width={}, Height={}", 
+                     footprint.Offset, footprint.Footprint.RowPitch, 
+                     footprint.Footprint.Width, footprint.Footprint.Height);
 
         UINT8* pData;
         HRESULT mapHr = uploadResource->Map(0, nullptr, reinterpret_cast<void**>(&pData));
@@ -148,6 +169,11 @@ namespace jisaku
                        subresourceData.RowPitch);
             }
             uploadResource->Unmap(0, nullptr);
+            spdlog::info("Texture data uploaded successfully");
+        }
+        else
+        {
+            spdlog::error("Failed to map upload resource: 0x{:x}", mapHr);
         }
 
         D3D12_TEXTURE_COPY_LOCATION src = {};
@@ -160,7 +186,20 @@ namespace jisaku
         dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
         dst.SubresourceIndex = 0;
 
+        // COMMON -> COPY_DEST に遷移
+        D3D12_RESOURCE_BARRIER toCopyDest = {};
+        toCopyDest.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        toCopyDest.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+        toCopyDest.Transition.pResource = handle.resource.Get();
+        toCopyDest.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+        toCopyDest.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+        toCopyDest.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        cmd->ResourceBarrier(1, &toCopyDest);
+        spdlog::info("Resource barrier recorded: COMMON -> COPY_DEST");
+
+        spdlog::info("Copying texture region from upload to default heap");
         cmd->CopyTextureRegion(&dst, 0, 0, 0, &src, nullptr);
+        spdlog::info("Texture copy command recorded");
 
         // Copy dest -> shader resource
         D3D12_RESOURCE_BARRIER barrier = {};
@@ -171,8 +210,9 @@ namespace jisaku
         barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
         barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         cmd->ResourceBarrier(1, &barrier);
+        spdlog::info("Resource barrier recorded: COPY_DEST -> PIXEL_SHADER_RESOURCE");
 
-        // SRV作成
+        // SRV作成（フォーマットはリソースと同じUNORM）
         D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
         srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
         srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -185,6 +225,8 @@ namespace jisaku
         handle.srvCPU = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
         handle.srvGPU = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
         dev->CreateShaderResourceView(handle.resource.Get(), &srvDesc, handle.srvCPU);
+        spdlog::info("SRV created at CPU handle: {}, GPU handle: {}", 
+                     handle.srvCPU.ptr, handle.srvGPU.ptr);
 
         return handle;
     }
@@ -192,6 +234,11 @@ namespace jisaku
     ID3D12DescriptorHeap* TextureLoader::GetSrvHeap() const
     {
         return m_srvHeap.Get();
+    }
+
+    void TextureLoader::FlushUploads()
+    {
+        m_pendingUploads.clear();
     }
 
 }
