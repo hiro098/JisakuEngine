@@ -51,6 +51,9 @@ namespace jisaku
             return false;
         }
 
+        // アップロード専用コンテキスト初期化
+        InitUploadContext();
+
         spdlog::info("DX12Device initialized successfully");
         return true;
     }
@@ -206,5 +209,44 @@ namespace jisaku
             m_fence->SetEventOnCompletion(signal, m_fenceEvent);
             WaitForSingleObject(m_fenceEvent, INFINITE);
         }
+    }
+
+    void DX12Device::ExecuteAndWait(std::function<void(ID3D12GraphicsCommandList*)> record)
+    {
+        m_commandAllocator->Reset();
+        m_commandList->Reset(m_commandAllocator.Get(), nullptr);
+        record(m_commandList.Get());
+        m_commandList->Close();
+        ID3D12CommandList* lists[] = { m_commandList.Get() };
+        m_commandQueue->ExecuteCommandLists(1, lists);
+        WaitIdle();
+    }
+
+    void DX12Device::InitUploadContext()
+    {
+        // DIRECT キュー用の独立アロケータ＋コマンドリスト（描画用とは別）
+        HRESULT hr = m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_uploadAlloc));
+        if (FAILED(hr)) {
+            spdlog::error("Failed to create upload command allocator: 0x{:x}", hr);
+            return;
+        }
+        hr = m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_uploadAlloc.Get(), nullptr, IID_PPV_ARGS(&m_uploadCmd));
+        if (FAILED(hr)) {
+            spdlog::error("Failed to create upload command list: 0x{:x}", hr);
+            return;
+        }
+        m_uploadCmd->Close(); // 最初は閉じておく
+    }
+
+    void DX12Device::UploadAndWait(std::function<void(ID3D12GraphicsCommandList*)> record)
+    {
+        // 描画用とは別のアロケータ/リストのみを操作するので競合しない
+        m_uploadAlloc->Reset();
+        m_uploadCmd->Reset(m_uploadAlloc.Get(), nullptr);
+        record(m_uploadCmd.Get());
+        m_uploadCmd->Close();
+        ID3D12CommandList* lists[] = { m_uploadCmd.Get() };
+        m_commandQueue->ExecuteCommandLists(1, lists);
+        WaitIdle(); // ここでGPU完了まで待つ
     }
 }

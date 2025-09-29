@@ -3,6 +3,7 @@
 #include <DirectXTex.h>
 #include <spdlog/spdlog.h>
 #include <vector>
+#include <functional>
 
 namespace jisaku
 {
@@ -239,6 +240,191 @@ namespace jisaku
     void TextureLoader::FlushUploads()
     {
         m_pendingUploads.clear();
+    }
+
+    bool TextureLoader::LoadFromFile(ID3D12Device* dev,
+                                     ID3D12GraphicsCommandList* cmd,
+                                     const std::wstring& path,
+                                     TextureHandle& out,
+                                     bool forceSRGB,
+                                     bool generateMips)
+    {
+        using Microsoft::WRL::ComPtr;
+        using namespace DirectX;
+
+        try {
+            spdlog::info("LoadFromFile called for: {}", std::string(path.begin(), path.end()));
+
+            TexMetadata meta{};
+            ScratchImage img{};
+            auto wicFlags = forceSRGB ? WIC_FLAGS_FORCE_SRGB : WIC_FLAGS_NONE;
+            
+            spdlog::info("Loading image with WIC...");
+            if (FAILED(LoadFromWICFile(path.c_str(), wicFlags, &meta, img))) {
+                spdlog::error("Failed to load image from file: {}", std::string(path.begin(), path.end()));
+                return false;
+            }
+            spdlog::info("Image loaded successfully: {}x{}, format: {}, mips: {}", 
+                        meta.width, meta.height, (int)meta.format, meta.mipLevels);
+
+            const ScratchImage* src = &img;
+            ScratchImage mipChain;
+            if (generateMips && meta.mipLevels == 1) {
+                spdlog::info("Generating mipmaps...");
+                if (SUCCEEDED(GenerateMipMaps(img.GetImages(), img.GetImageCount(), img.GetMetadata(),
+                                              TEX_FILTER_DEFAULT, 0, mipChain))) {
+                    src = &mipChain;
+                    meta = mipChain.GetMetadata();
+                    spdlog::info("Mipmaps generated: {} levels", meta.mipLevels);
+                }
+            }
+
+            spdlog::info("Creating texture resource...");
+            ComPtr<ID3D12Resource> tex;
+            if (FAILED(CreateTexture(dev, meta, tex.ReleaseAndGetAddressOf()))) {
+                spdlog::error("Failed to create texture resource");
+                return false;
+            }
+            spdlog::info("Texture resource created successfully");
+
+        spdlog::info("Preparing upload data...");
+        std::vector<D3D12_SUBRESOURCE_DATA> subres;
+        if (FAILED(PrepareUpload(dev, src->GetImages(), src->GetImageCount(), meta, subres))) {
+                spdlog::error("Failed to prepare upload");
+                return false;
+            }
+            spdlog::info("Upload data prepared: {} subresources", subres.size());
+
+        // フットプリントを計算して正しくアップロード
+        const UINT numSubresources = static_cast<UINT>(subres.size());
+        std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> layouts(numSubresources);
+        std::vector<UINT> numRows(numSubresources);
+        std::vector<UINT64> rowSizes(numSubresources);
+        UINT64 totalBytes = 0;
+        D3D12_RESOURCE_DESC desc = tex->GetDesc();
+        dev->GetCopyableFootprints(&desc, 0, numSubresources, 0, layouts.data(), numRows.data(), rowSizes.data(), &totalBytes);
+
+        spdlog::info("Creating upload resource, total size: {} bytes", totalBytes);
+        D3D12_RESOURCE_DESC uploadDesc = {};
+        uploadDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        uploadDesc.Width = totalBytes;
+        uploadDesc.Height = 1;
+        uploadDesc.DepthOrArraySize = 1;
+        uploadDesc.MipLevels = 1;
+        uploadDesc.Format = DXGI_FORMAT_UNKNOWN;
+        uploadDesc.SampleDesc.Count = 1;
+        uploadDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        uploadDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+        D3D12_HEAP_PROPERTIES uploadHeapProps = {};
+        uploadHeapProps.Type = D3D12_HEAP_TYPE_UPLOAD;
+        uploadHeapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+        uploadHeapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+
+        ComPtr<ID3D12Resource> upload;
+        if (FAILED(dev->CreateCommittedResource(&uploadHeapProps, D3D12_HEAP_FLAG_NONE, &uploadDesc,
+                                               D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                               IID_PPV_ARGS(&upload)))) {
+            spdlog::error("Failed to create upload resource");
+            return false;
+        }
+        spdlog::info("Upload resource created successfully");
+
+        // マップして各サブリソースを行単位でコピー
+        spdlog::info("Mapping upload resource...");
+        void* mappedData = nullptr;
+        if (FAILED(upload->Map(0, nullptr, &mappedData))) {
+            spdlog::error("Failed to map upload resource");
+            return false;
+        }
+
+        spdlog::info("Copying data to upload buffer with footprints...");
+        for (UINT i = 0; i < numSubresources; ++i) {
+            const D3D12_SUBRESOURCE_DATA& sd = subres[i];
+            const UINT8* srcBytes = reinterpret_cast<const UINT8*>(sd.pData);
+            UINT8* dst = reinterpret_cast<UINT8*>(mappedData) + layouts[i].Offset;
+            const UINT64 dstRowPitch = layouts[i].Footprint.RowPitch;
+            for (UINT row = 0; row < numRows[i]; ++row) {
+                memcpy(dst + row * dstRowPitch, srcBytes + row * sd.RowPitch, static_cast<size_t>(rowSizes[i]));
+            }
+        }
+        upload->Unmap(0, nullptr);
+        spdlog::info("Data copied to upload buffer successfully");
+
+        // 遷移: COMMON -> COPY_DEST（DirectXTex CreateTexture は COMMON の想定）
+        {
+            D3D12_RESOURCE_BARRIER b = {};
+            b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            b.Transition.pResource = tex.Get();
+            b.Transition.StateBefore = D3D12_RESOURCE_STATE_COMMON;
+            b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+            b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            cmd->ResourceBarrier(1, &b);
+            spdlog::info("Resource barrier recorded: COMMON -> COPY_DEST");
+        }
+
+        // テクスチャにコピー
+        spdlog::info("Copying data to texture...");
+        for (UINT i = 0; i < numSubresources; ++i) {
+            D3D12_TEXTURE_COPY_LOCATION srcLoc = {};
+            srcLoc.pResource = upload.Get();
+            srcLoc.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+            srcLoc.PlacedFootprint = layouts[i];
+
+            D3D12_TEXTURE_COPY_LOCATION dstLoc = {};
+            dstLoc.pResource = tex.Get();
+            dstLoc.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+            dstLoc.SubresourceIndex = i;
+
+            cmd->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, nullptr);
+        }
+        spdlog::info("Data copied to texture successfully");
+
+            // 遷移: COPY_DEST -> PIXEL_SHADER_RESOURCE
+            spdlog::info("Setting resource barrier...");
+            D3D12_RESOURCE_BARRIER barrier = {};
+            barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+            barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+            barrier.Transition.pResource = tex.Get();
+            barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+            barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+            barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+            cmd->ResourceBarrier(1, &barrier);
+
+            // SRVをshader-visibleヒープ先頭に作成
+            spdlog::info("Creating SRV...");
+            DXGI_FORMAT fmt = meta.format;
+            if (fmt == DXGI_FORMAT_B8G8R8A8_TYPELESS) fmt = forceSRGB ? DXGI_FORMAT_B8G8R8A8_UNORM_SRGB : DXGI_FORMAT_B8G8R8A8_UNORM;
+            if (fmt == DXGI_FORMAT_R8G8B8A8_TYPELESS) fmt = forceSRGB ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM;
+
+            D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+            srv.Format = fmt;
+            srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+            srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+            srv.Texture2D.MipLevels = (UINT)meta.mipLevels;
+
+            auto cpu = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+            dev->CreateShaderResourceView(tex.Get(), &srv, cpu);
+
+            // ハンドル更新
+            out.resource = tex;
+            out.srvCPU = cpu;
+            out.srvGPU = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+
+            // アップロード寿命を保持（GPU完了後にFlushUploadsで解放）
+            m_pendingUploads.push_back(upload);
+            
+            spdlog::info("Successfully loaded texture from file");
+            return true;
+        }
+        catch (const std::exception& e) {
+            spdlog::error("Exception in LoadFromFile: {}", e.what());
+            return false;
+        }
+        catch (...) {
+            spdlog::error("Unknown exception in LoadFromFile");
+            return false;
+        }
     }
 
 }

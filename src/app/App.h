@@ -3,7 +3,10 @@
 #include <Windows.h>
 #include <memory>
 #include <wrl/client.h>
+#include <atomic>
+#include <thread>
 #include "ui/ImGuiLayer.h"
+#include "gfx/TextureLoader.h"
 
 namespace jisaku
 {
@@ -12,6 +15,8 @@ namespace jisaku
     class RenderPass_Clear;
     class RenderPass_Triangle;
     class RenderPass_TexturedQuad;
+    class TextureLoader;
+    struct TextureHandle;
 
     class App
     {
@@ -38,5 +43,16 @@ namespace jisaku
         std::unique_ptr<RenderPass_Clear> m_renderPass;
         std::unique_ptr<RenderPass_Triangle> m_trianglePass;
         std::unique_ptr<RenderPass_TexturedQuad> m_texQuad;
+        std::unique_ptr<TextureLoader> m_texLoader;
+        TextureHandle m_loadedTex;
+
+        // 遅延ロード用の一時パス
+        std::wstring m_pendingTexturePath;
+
+        // 非同期ロード制御
+        std::atomic<bool> m_loading{ false };
+        std::atomic<bool> m_loadedReady{ false };
+        TextureHandle m_loadedTemp;
+        std::thread m_loaderThread;
     };
 }

@@ -119,6 +119,8 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     d3d12
     dxgi
     d3dcompiler
+    ole32
+    oleaut32
 )
 
 # シェーダーファイルをビルドに含める

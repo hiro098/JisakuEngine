@@ -4,9 +4,12 @@
 #include "gfx/RenderPass_Clear.h"
 #include "gfx/RenderPass_Triangle.h"
 #include "gfx/RenderPass_TexturedQuad.h"
+#include "gfx/TextureLoader.h"
 #include "ui/ImGuiLayer.h"
 #include "imgui_impl_win32.h"
 #include <spdlog/spdlog.h>
+#include <commdlg.h>
+#include <imgui.h>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -71,6 +74,8 @@ namespace jisaku
             spdlog::error("Failed to initialize DX12Device");
             return false;
         }
+        // アップロード専用コンテキスト初期化
+        m_device->InitUploadContext();
 
         // スワップチェーン初期化
         m_swapchain = std::make_unique<Swapchain>();
@@ -93,6 +98,14 @@ namespace jisaku
         if (!m_trianglePass->Initialize(m_device.get(), m_swapchain.get()))
         {
             spdlog::error("Failed to initialize RenderPass_Triangle");
+            return false;
+        }
+
+        // TextureLoader初期化
+        m_texLoader = std::make_unique<TextureLoader>();
+        if (!m_texLoader->Init(m_device->GetDevice()))
+        {
+            spdlog::error("Failed to initialize TextureLoader");
             return false;
         }
 
@@ -227,9 +240,40 @@ namespace jisaku
                 return;
             }
 
+            // フレーム開始前に、前フレームからの遅延ロードを処理
+            if (!m_pendingTexturePath.empty()) {
+                auto path = m_pendingTexturePath; // 退避
+                m_pendingTexturePath.clear();
+                m_device->UploadAndWait([&](ID3D12GraphicsCommandList* cmd) {
+                    m_texQuad->GetTextureLoader()->LoadFromFile(m_device->GetDevice(), cmd, path, m_loadedTex, /*forceSRGB=*/true, /*generateMips=*/true);
+                });
+                m_texQuad->GetTextureLoader()->FlushUploads();
+                m_texQuad->SetTexture(m_loadedTex);
+            }
+
             const float clear[4] = { 0.392f, 0.584f, 0.929f, 1.0f }; // CornflowerBlue-ish
             m_device->BeginFrame();
             m_imgui.NewFrame();
+            
+            // ImGuiデバッグウィンドウ
+            if (ImGui::Begin("Debug")) {
+                if (ImGui::Button("Load Texture...")) {
+                    wchar_t path[MAX_PATH] = {};
+                    OPENFILENAMEW ofn{};
+                    ofn.lStructSize = sizeof(ofn);
+                    ofn.hwndOwner = m_hwnd;
+                    ofn.lpstrFilter = L"Images\0*.png;*.jpg;*.jpeg;*.bmp;*.tga;*.gif\0All\0*.*\0";
+                    ofn.lpstrFile = path;
+                    ofn.nMaxFile = MAX_PATH;
+                    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+                    if (GetOpenFileNameW(&ofn)) {
+                        // フレーム外でメインスレッドが安全なタイミングで実行するため、パスのみ保持
+                        m_pendingTexturePath = path;
+                    }
+                }
+            }
+            ImGui::End();
+            
             m_renderPass->Execute(m_device->GetCommandList(), *m_swapchain, clear);
             m_texQuad->Execute(m_device->GetCommandList(), *m_swapchain);
             m_imgui.Render(m_device->GetCommandList());

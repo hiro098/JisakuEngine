@@ -4,6 +4,7 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 #include <memory>
+#include <functional>
 
 namespace jisaku
 {
@@ -30,6 +31,11 @@ namespace jisaku
         void WaitIdle();
         void BeginFrame();
         void EndFrameAndPresent(class Swapchain& swap, bool vsync);
+        void ExecuteAndWait(std::function<void(ID3D12GraphicsCommandList*)> record);
+
+        // アップロード専用（描画とは別の）コンテキスト
+        void InitUploadContext(); // 初期化時に呼ぶ
+        void UploadAndWait(std::function<void(ID3D12GraphicsCommandList*)> record);
 
     private:
         bool CreateDevice();
@@ -48,5 +54,9 @@ namespace jisaku
         HANDLE m_fenceEvent;
         UINT m_frameIndex;
         UINT m_frameCount;
+
+        // アップロード専用（描画とは別の）コンテキスト
+        Microsoft::WRL::ComPtr<ID3D12CommandAllocator> m_uploadAlloc;
+        Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> m_uploadCmd;
     };
 }

@@ -18,6 +18,8 @@ namespace jisaku
 
         bool Initialize(DX12Device* device, Swapchain* swapchain);
         void Execute(ID3D12GraphicsCommandList* cmd, Swapchain& swap);
+        void SetTexture(const TextureHandle& h);
+        TextureLoader* GetTextureLoader() const { return m_textureLoader.get(); }
 
     private:
         DX12Device* m_device;

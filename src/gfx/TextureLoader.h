@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 #include <cstdint>
 #include <vector>
+#include <string>
 
 namespace jisaku
 {
@@ -20,6 +21,15 @@ namespace jisaku
         bool Init(ID3D12Device* dev);
         TextureHandle CreateCheckerboard(ID3D12Device* dev, ID3D12GraphicsCommandList* cmd,
                                          uint32_t size = 256, uint32_t cell = 32);
+        
+        // 追加: 外部画像ファイルを読み込んで out にSRVを上書き
+        bool LoadFromFile(ID3D12Device* dev,
+                          ID3D12GraphicsCommandList* cmd,
+                          const std::wstring& path,
+                          /*inout*/ TextureHandle& out,
+                          bool forceSRGB = true,
+                          bool generateMips = true);
+
         ID3D12DescriptorHeap* GetSrvHeap() const;
         void FlushUploads();
 

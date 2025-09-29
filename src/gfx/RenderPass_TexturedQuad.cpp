@@ -364,4 +364,9 @@ namespace jisaku
         toPresent.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
         cmd->ResourceBarrier(1, &toPresent);
     }
+
+    void RenderPass_TexturedQuad::SetTexture(const TextureHandle& h)
+    {
+        m_texture = h;
+    }
 }
