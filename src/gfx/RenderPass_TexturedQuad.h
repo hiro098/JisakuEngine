@@ -5,13 +5,14 @@
 #include <memory>
 #include <DirectXMath.h>
 #include "TextureLoader.h"
+#include "ShaderReloader.h"
 
 namespace jisaku
 {
     class DX12Device;
     class Swapchain;
 
-    class RenderPass_TexturedQuad
+    class RenderPass_TexturedQuad : public IHotReloadable
     {
     public:
         RenderPass_TexturedQuad();
@@ -25,7 +26,13 @@ namespace jisaku
         TextureLoader* GetTextureLoader() const { return m_textureLoader.get(); }
         void SetCamera(const DirectX::XMVECTOR& pos, const DirectX::XMVECTOR& rotQ);
 
+        // IHotReloadable
+        void OnShadersReloaded(const ShaderBlobs& blobs) override;
+
     private:
+        bool CreatePipelineState();
+        bool CreatePipelineState(const ShaderBlobs& blobs);
+
         DX12Device* m_device;
         Microsoft::WRL::ComPtr<ID3D12RootSignature> m_rootSignature;
         Microsoft::WRL::ComPtr<ID3D12PipelineState> m_pipelineState;

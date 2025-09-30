@@ -84,30 +84,119 @@ namespace jisaku
             return false;
         }
 
-        // シェーダーコンパイル
-        Microsoft::WRL::ComPtr<ID3DBlob> vertexShader;
-        Microsoft::WRL::ComPtr<ID3DBlob> pixelShader;
+        // 初期化時はファイルから読み込み
+        ShaderBlobs blobs;
+        std::wstring errorStr;
+        ShaderDesc desc;
+        desc.hlslPath = L"shaders/TexturedQuad.hlsl";
+        desc.entryVS = L"VSMain";
+        desc.entryPS = L"PSMain";
+        desc.targetVS = L"vs_6_0";
+        desc.targetPS = L"ps_6_0";
+        
+        // 簡易的なコンパイル関数
+        auto compile_ = [](const ShaderDesc& desc, ShaderBlobs& out, std::wstring& error) -> bool {
+            FILE* fp = nullptr;
+            _wfopen_s(&fp, desc.hlslPath.c_str(), L"rb");
+            if (!fp) return false;
+            fseek(fp, 0, SEEK_END);
+            long sz = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            std::vector<char> buf(sz + 1);
+            fread(buf.data(), 1, sz, fp);
+            fclose(fp);
+            buf[sz] = 0;
 
-        hr = D3DCompileFromFile(L"shaders/TexturedQuad.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "VSMain", "vs_5_0", 0, 0, &vertexShader, &error);
-        if (FAILED(hr))
-        {
-            if (error)
-            {
-                spdlog::error("Failed to compile VS: {}", (char*)error->GetBufferPointer());
+            Microsoft::WRL::ComPtr<ID3DBlob> vs, ps, errorBlob;
+            
+            HRESULT hr = D3DCompile(buf.data(), sz, nullptr, nullptr, nullptr, 
+                "VSMain", "vs_6_0", 0, 0, &vs, &errorBlob);
+            if (FAILED(hr)) {
+                if (errorBlob) error = std::string((char*)errorBlob->GetBufferPointer());
+                return false;
             }
+            
+            hr = D3DCompile(buf.data(), sz, nullptr, nullptr, nullptr, 
+                "PSMain", "ps_6_0", 0, 0, &ps, &errorBlob);
+            if (FAILED(hr)) {
+                if (errorBlob) error = std::string((char*)errorBlob->GetBufferPointer());
+                return false;
+            }
+            
+            out.vs = vs;
+            out.ps = ps;
+            return true;
+        };
+        
+        if (!compile_(desc, blobs, errorStr)) {
+            spdlog::error("Failed to compile shaders: {}", errorStr);
+            return false;
+        }
+        
+        if (!CreatePipelineState(blobs)) {
+            spdlog::error("Failed to create pipeline state");
             return false;
         }
 
-        hr = D3DCompileFromFile(L"shaders/TexturedQuad.hlsl", nullptr, D3D_COMPILE_STANDARD_FILE_INCLUDE, "PSMain", "ps_5_0", 0, 0, &pixelShader, &error);
-        if (FAILED(hr))
-        {
-            if (error)
-            {
-                spdlog::error("Failed to compile PS: {}", (char*)error->GetBufferPointer());
+        return true;
+    }
+
+    bool RenderPass_TexturedQuad::CreatePipelineState()
+    {
+        // 初期化時はファイルから読み込み
+        ShaderBlobs blobs;
+        std::wstring errorStr;
+        ShaderDesc desc;
+        desc.hlslPath = L"shaders/TexturedQuad.hlsl";
+        desc.entryVS = L"VSMain";
+        desc.entryPS = L"PSMain";
+        desc.targetVS = L"vs_6_0";
+        desc.targetPS = L"ps_6_0";
+        
+        // 簡易的なコンパイル関数
+        auto compile_ = [](const ShaderDesc& desc, ShaderBlobs& out, std::wstring& error) -> bool {
+            FILE* fp = nullptr;
+            _wfopen_s(&fp, desc.hlslPath.c_str(), L"rb");
+            if (!fp) return false;
+            fseek(fp, 0, SEEK_END);
+            long sz = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            std::vector<char> buf(sz + 1);
+            fread(buf.data(), 1, sz, fp);
+            fclose(fp);
+            buf[sz] = 0;
+
+            Microsoft::WRL::ComPtr<ID3DBlob> vs, ps, errorBlob;
+            
+            HRESULT hr = D3DCompile(buf.data(), sz, nullptr, nullptr, nullptr, 
+                "VSMain", "vs_6_0", 0, 0, &vs, &errorBlob);
+            if (FAILED(hr)) {
+                if (errorBlob) error = std::string((char*)errorBlob->GetBufferPointer());
+                return false;
             }
+            
+            hr = D3DCompile(buf.data(), sz, nullptr, nullptr, nullptr, 
+                "PSMain", "ps_6_0", 0, 0, &ps, &errorBlob);
+            if (FAILED(hr)) {
+                if (errorBlob) error = std::string((char*)errorBlob->GetBufferPointer());
+                return false;
+            }
+            
+            out.vs = vs;
+            out.ps = ps;
+            return true;
+        };
+        
+        if (!compile_(desc, blobs, errorStr)) {
+            spdlog::error("Failed to compile shaders: {}", errorStr);
             return false;
         }
+        
+        return CreatePipelineState(blobs);
+    }
 
+    bool RenderPass_TexturedQuad::CreatePipelineState(const ShaderBlobs& blobs)
+    {
         // 入力レイアウト
         D3D12_INPUT_ELEMENT_DESC inputElementDescs[] = {
             { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -118,8 +207,8 @@ namespace jisaku
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
         psoDesc.pRootSignature = m_rootSignature.Get();
-        psoDesc.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize() };
-        psoDesc.PS = { pixelShader->GetBufferPointer(), pixelShader->GetBufferSize() };
+        psoDesc.VS = { blobs.vs->GetBufferPointer(), blobs.vs->GetBufferSize() };
+        psoDesc.PS = { blobs.ps->GetBufferPointer(), blobs.ps->GetBufferSize() };
         
         // ラスタライザー設定
         D3D12_RASTERIZER_DESC rasterizerDesc = {};
@@ -160,7 +249,7 @@ namespace jisaku
         psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
         psoDesc.SampleDesc.Count = 1;
 
-        hr = m_device->GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState));
+        HRESULT hr = m_device->GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState));
         if (FAILED(hr))
         {
             spdlog::error("Failed to create pipeline state: 0x{:x}", hr);
@@ -226,7 +315,7 @@ namespace jisaku
         resourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
         resourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
-        hr = m_device->GetDevice()->CreateCommittedResource(
+        HRESULT hr = m_device->GetDevice()->CreateCommittedResource(
             &heapProps,
             D3D12_HEAP_FLAG_NONE,
             &resourceDesc,
@@ -344,6 +433,16 @@ namespace jisaku
 
         spdlog::info("RenderPass_TexturedQuad initialized successfully");
         return true;
+    }
+
+    void RenderPass_TexturedQuad::OnShadersReloaded(const ShaderBlobs& blobs)
+    {
+        // PSO再作成
+        if (CreatePipelineState(blobs)) {
+            spdlog::info("TexturedQuad shaders reloaded successfully");
+        } else {
+            spdlog::warn("Failed to reload TexturedQuad shaders, keeping old PSO");
+        }
     }
 
     void RenderPass_TexturedQuad::Execute(ID3D12GraphicsCommandList* cmd, Swapchain& swap)

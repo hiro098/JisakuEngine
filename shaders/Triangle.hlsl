@@ -1,5 +1,12 @@
-struct VSInput { float3 pos : POSITION; float3 col : COLOR; };
-struct PSInput { float4 pos : SV_POSITION; float3 col : COLOR; };
+struct VSInput { 
+    float3 pos : POSITION; 
+    float3 col : COLOR; 
+};
+
+struct PSInput { 
+    float4 pos : SV_POSITION; 
+    float3 col : COLOR; 
+};
 
 PSInput VSMain(VSInput input) {
     PSInput o;

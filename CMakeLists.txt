@@ -53,6 +53,7 @@ set(SOURCES
     src/gfx/TextureLoader.cpp
     src/gfx/GPUTimer.cpp
     src/core/InputManager.cpp
+    src/gfx/ShaderReloader.cpp
     src/ui/ImGuiLayer.cpp
 )
 
@@ -65,6 +66,9 @@ set(HEADERS
     src/gfx/RenderPass_Triangle.h
     src/gfx/RenderPass_TexturedQuad.h
     src/gfx/TextureLoader.h
+    src/gfx/GPUTimer.h
+    src/core/InputManager.h
+    src/gfx/ShaderReloader.h
     src/ui/ImGuiLayer.h
 )
 

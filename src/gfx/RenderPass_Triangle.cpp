@@ -101,54 +101,62 @@ namespace jisaku
 
     bool RenderPass_Triangle::CreatePipelineState()
     {
-        // シェーダーコンパイル（簡易版）
-        Microsoft::WRL::ComPtr<ID3DBlob> vertexShader;
-        Microsoft::WRL::ComPtr<ID3DBlob> pixelShader;
-
-        // 頂点シェーダー
-        const char* vsCode = R"(
-struct VSInput { float3 pos : POSITION; float3 col : COLOR; };
-struct PSInput { float4 pos : SV_POSITION; float3 col : COLOR; };
-
-PSInput VSMain(VSInput input) {
-    PSInput o;
-    o.pos = float4(input.pos, 1.0);
-    o.col = input.col;
-    return o;
-}
-)";
-
-        const char* psCode = R"(
-struct PSInput { float4 pos : SV_POSITION; float3 col : COLOR; };
-
-float4 PSMain(PSInput input) : SV_TARGET {
-    return float4(input.col, 1.0);
-}
-)";
-
-        Microsoft::WRL::ComPtr<ID3DBlob> errorBlob;
+        // 初期化時はファイルから読み込み
+        ShaderBlobs blobs;
+        std::wstring error;
+        ShaderDesc desc;
+        desc.hlslPath = L"shaders/Triangle.hlsl";
+        desc.entryVS = L"VSMain";
+        desc.entryPS = L"PSMain";
+        desc.targetVS = L"vs_6_0";
+        desc.targetPS = L"ps_6_0";
         
-        HRESULT hr = D3DCompile(vsCode, strlen(vsCode), nullptr, nullptr, nullptr, "VSMain", "vs_5_0", 0, 0, &vertexShader, &errorBlob);
-        if (FAILED(hr))
-        {
-            spdlog::error("Failed to compile vertex shader: 0x{:x}", hr);
-            if (errorBlob)
-            {
-                spdlog::error("Shader error: {}", (char*)errorBlob->GetBufferPointer());
-            }
-            return false;
-        }
+        // 簡易的なコンパイル関数を追加
+        auto compile_ = [](const ShaderDesc& desc, ShaderBlobs& out, std::wstring& error) -> bool {
+            // ファイル読み込み
+            FILE* fp = nullptr;
+            _wfopen_s(&fp, desc.hlslPath.c_str(), L"rb");
+            if (!fp) return false;
+            fseek(fp, 0, SEEK_END);
+            long sz = ftell(fp);
+            fseek(fp, 0, SEEK_SET);
+            std::vector<char> buf(sz + 1);
+            fread(buf.data(), 1, sz, fp);
+            fclose(fp);
+            buf[sz] = 0;
 
-        hr = D3DCompile(psCode, strlen(psCode), nullptr, nullptr, nullptr, "PSMain", "ps_5_0", 0, 0, &pixelShader, &errorBlob);
-        if (FAILED(hr))
-        {
-            spdlog::error("Failed to compile pixel shader: 0x{:x}", hr);
-            if (errorBlob)
-            {
-                spdlog::error("Shader error: {}", (char*)errorBlob->GetBufferPointer());
+            // D3DCompile使用
+            Microsoft::WRL::ComPtr<ID3DBlob> vs, ps, errorBlob;
+            
+            HRESULT hr = D3DCompile(buf.data(), sz, nullptr, nullptr, nullptr, 
+                "VSMain", "vs_6_0", 0, 0, &vs, &errorBlob);
+            if (FAILED(hr)) {
+                if (errorBlob) error = std::string((char*)errorBlob->GetBufferPointer());
+                return false;
             }
+            
+            hr = D3DCompile(buf.data(), sz, nullptr, nullptr, nullptr, 
+                "PSMain", "ps_6_0", 0, 0, &ps, &errorBlob);
+            if (FAILED(hr)) {
+                if (errorBlob) error = std::string((char*)errorBlob->GetBufferPointer());
+                return false;
+            }
+            
+            out.vs = vs;
+            out.ps = ps;
+            return true;
+        };
+        
+        if (!compile_(desc, blobs, error)) {
+            spdlog::error("Failed to compile shaders: {}", error);
             return false;
         }
+        
+        return CreatePipelineState(blobs);
+    }
+
+    bool RenderPass_Triangle::CreatePipelineState(const ShaderBlobs& blobs)
+    {
 
         // 入力レイアウト
         D3D12_INPUT_ELEMENT_DESC inputElementDescs[] = {
@@ -160,8 +168,8 @@ float4 PSMain(PSInput input) : SV_TARGET {
         D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
         psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
         psoDesc.pRootSignature = m_rootSignature.Get();
-        psoDesc.VS = { vertexShader->GetBufferPointer(), vertexShader->GetBufferSize() };
-        psoDesc.PS = { pixelShader->GetBufferPointer(), pixelShader->GetBufferSize() };
+        psoDesc.VS = { blobs.vs->GetBufferPointer(), blobs.vs->GetBufferSize() };
+        psoDesc.PS = { blobs.ps->GetBufferPointer(), blobs.ps->GetBufferSize() };
         
         // ラスタライザー設定
         D3D12_RASTERIZER_DESC rasterizerDesc = {};
@@ -202,7 +210,7 @@ float4 PSMain(PSInput input) : SV_TARGET {
         psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
         psoDesc.SampleDesc.Count = 1;
 
-        hr = m_device->GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState));
+        HRESULT hr = m_device->GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState));
         if (FAILED(hr))
         {
             spdlog::error("Failed to create pipeline state: 0x{:x}", hr);
@@ -277,6 +285,16 @@ float4 PSMain(PSInput input) : SV_TARGET {
         return true;
     }
 
+    void RenderPass_Triangle::OnShadersReloaded(const ShaderBlobs& blobs)
+    {
+        // PSO再作成
+        if (CreatePipelineState(blobs)) {
+            spdlog::info("Triangle shaders reloaded successfully");
+        } else {
+            spdlog::warn("Failed to reload triangle shaders, keeping old PSO");
+        }
+    }
+
     void RenderPass_Triangle::Execute(ID3D12GraphicsCommandList* cmd, Swapchain& swap)
     {
         // バックバッファをRTVにバリア
@@ -322,3 +340,4 @@ float4 PSMain(PSInput input) : SV_TARGET {
         cmd->ResourceBarrier(1, &toPresent);
     }
 }
+

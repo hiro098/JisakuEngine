@@ -13,3 +13,9 @@ PSIn VSMain(VSIn i){
 Texture2D    gTex  : register(t0);
 SamplerState gSamp : register(s0);
 float4 PSMain(PSIn i):SV_TARGET { return gTex.Sample(gSamp, i.uv); }
+float4 PSMain(PSIn i):SV_TARGET
+{
+    float3 rgb = gTex.Sample(gSamp, i.uv).rgb;
+    float luma = dot(rgb, float3(0.299, 0.587, 0.114));
+    return float4(luma.xxx, 1);
+}

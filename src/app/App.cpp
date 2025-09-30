@@ -132,6 +132,12 @@ namespace jisaku
         // 入力管理
         m_input = std::make_unique<InputManager>();
         
+        // シェーダーホットリロード初期化
+        m_shaderReloader = std::make_unique<ShaderReloader>();
+        m_shaderReloader->Init(m_device.get());
+        m_shaderReloader->Register({L"shaders/Triangle.hlsl", L"VSMain", L"PSMain"}, m_trianglePass.get());
+        m_shaderReloader->Register({L"shaders/TexturedQuad.hlsl", L"VSMain", L"PSMain"}, m_texQuad.get());
+        
         // Raw Input API登録
         RAWINPUTDEVICE rid[1];
         rid[0].usUsagePage = 0x01; // Generic Desktop
@@ -332,7 +338,15 @@ namespace jisaku
                 // デルタタイムを適切な範囲にクランプ
                 dt = (std::min)(dt, 1.0f/30.0f); // 最大30FPS相当
                 
+                // デルタタイム平滑化
+                m_dtSmoothed = m_dtSmoothed * 0.8 + dt * 0.2;
+                
                 m_input->UpdateCamera(dt);
+                
+                // シェーダーホットリロード更新
+                if (m_shaderReloader) {
+                    m_shaderReloader->Tick(m_dtSmoothed, 0.5);
+                }
                 
                 // 右クリック時はマウスカーソルを非表示にする（Raw Input使用）
                 if (m_input->IsMouseDown(1)) { // 右クリック（ボタン1）
@@ -397,6 +411,13 @@ namespace jisaku
                 ImGui::SliderFloat("Scale X", &sx, 0.1f, 5.0f);
                 ImGui::SliderFloat("Scale Y", &sy, 0.1f, 5.0f);
                 if (m_texQuad) m_texQuad->SetTransform(tx, ty, rot, sx, sy);
+                
+                // シェーダー再コンパイルボタン
+                if (ImGui::Button("Recompile Shaders")) {
+                    if (m_shaderReloader) {
+                        m_shaderReloader->ForceRebuildAll();
+                    }
+                }
             }
             ImGui::End();
             if (m_gpuTimer) m_gpuTimer->DrawImGui();

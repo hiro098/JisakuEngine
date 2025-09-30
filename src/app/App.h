@@ -9,6 +9,7 @@
 #include "gfx/TextureLoader.h"
 #include "gfx/GPUTimer.h"
 #include "core/InputManager.h"
+#include "gfx/ShaderReloader.h"
 
 namespace jisaku
 {
@@ -64,6 +65,10 @@ namespace jisaku
         // GPUタイマー
         std::unique_ptr<jisaku::GPUTimer> m_gpuTimer;
         std::unique_ptr<jisaku::InputManager> m_input;
+        
+        // シェーダーホットリロード
+        std::unique_ptr<jisaku::ShaderReloader> m_shaderReloader;
+        double m_dtSmoothed = 0.0;
         
         // マウスカーソル状態管理
         bool m_cursorHidden = false;
