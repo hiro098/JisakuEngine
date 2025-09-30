@@ -52,6 +52,7 @@ set(SOURCES
     src/gfx/RenderPass_TexturedQuad.cpp
     src/gfx/TextureLoader.cpp
     src/gfx/GPUTimer.cpp
+    src/core/InputManager.cpp
     src/ui/ImGuiLayer.cpp
 )
 

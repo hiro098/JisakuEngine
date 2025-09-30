@@ -379,22 +379,25 @@ namespace jisaku
         cmd->SetPipelineState(m_pipelineState.Get());
 
         // ③CBV(b0) を ルートパラメータ[0] に渡す（毎フレーム更新）
-        // MVP計算（正射影 + S*R*T）
+        // MVP計算（World * View * Projection）
         using namespace DirectX;
         float w = (float)swap.GetWidth();
         float h = (float)swap.GetHeight();
-        XMMATRIX ortho = XMMatrixOrthographicOffCenterLH(0.0f, w, h, 0.0f, 0.0f, 1.0f);
+        float aspect = (h > 0.0f) ? (w / h) : 1.0f;
+        float fov = XMConvertToRadians(60.0f);
+        XMMATRIX proj = XMMatrixPerspectiveFovLH(fov, aspect, 0.01f, 1000.0f);
+
         float rad = XMConvertToRadians(m_rotDeg);
-        // 頂点はNDC基準(-0.5..0.5)なので、ピクセル相当で拡縮する
-        // scaleに指定された値をそのままピクセルとして扱うため、
-        // NDC基準の四角(1.0)を画面ピクセルに合わせる換算を加味
-        float sx = m_scaleX;
-        float sy = m_scaleY;
-        XMMATRIX S = XMMatrixScaling(sx, sy, 1.0f);
+        XMMATRIX S = XMMatrixScaling(m_scaleX, m_scaleY, 1.0f);
         XMMATRIX R = XMMatrixRotationZ(rad);
-        XMMATRIX T = XMMatrixTranslation(m_transX + w * 0.5f, m_transY + h * 0.5f, 0.0f);
-        XMMATRIX M = S * R * T;
-        XMMATRIX MVP = M * ortho;
+        XMMATRIX T = XMMatrixTranslation(m_transX, m_transY, 0.0f);
+        XMMATRIX world = S * R * T;
+
+        XMMATRIX camR = XMMatrixRotationQuaternion(m_camRotQ);
+        XMMATRIX camT = XMMatrixTranslationFromVector(m_camPos);
+        XMMATRIX view = XMMatrixInverse(nullptr, camR * camT);
+
+        XMMATRIX MVP = world * view * proj;
         XMFLOAT4X4 mvpOut;
         XMStoreFloat4x4(&mvpOut, XMMatrixTranspose(MVP));
 
@@ -441,5 +444,11 @@ namespace jisaku
     void RenderPass_TexturedQuad::SetActiveSlot(uint32_t slot)
     {
         m_activeSlot = slot;
+    }
+
+    void RenderPass_TexturedQuad::SetCamera(const DirectX::XMVECTOR& pos, const DirectX::XMVECTOR& rotQ)
+    {
+        m_camPos = pos;
+        m_camRotQ = rotQ;
     }
 }

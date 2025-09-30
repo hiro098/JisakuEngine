@@ -10,6 +10,7 @@
 #include <spdlog/spdlog.h>
 #include <commdlg.h>
 #include <imgui.h>
+#include <chrono>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -128,6 +129,19 @@ namespace jisaku
         m_gpuTimer = std::make_unique<GPUTimer>();
         m_gpuTimer->Init(m_device.get(), 32);
 
+        // 入力管理
+        m_input = std::make_unique<InputManager>();
+        
+        // Raw Input API登録
+        RAWINPUTDEVICE rid[1];
+        rid[0].usUsagePage = 0x01; // Generic Desktop
+        rid[0].usUsage = 0x02;     // Mouse
+        rid[0].dwFlags = RIDEV_INPUTSINK; // フォーカスがなくても入力を受信
+        rid[0].hwndTarget = m_hwnd;
+        if (!RegisterRawInputDevices(rid, 1, sizeof(RAWINPUTDEVICE))) {
+            spdlog::warn("Failed to register Raw Input device");
+        }
+
         m_running = true;
         spdlog::info("Application initialized successfully");
         return true;
@@ -185,6 +199,49 @@ namespace jisaku
         {
             switch (uMsg)
             {
+            case WM_KEYDOWN:
+            case WM_SYSKEYDOWN:
+                if (app->m_input) app->m_input->OnKeyEvent(wParam, true);
+                // Escキーでゲーム終了
+                if (wParam == VK_ESCAPE) {
+                    PostQuitMessage(0);
+                    return 0;
+                }
+                return 0;
+            case WM_KEYUP:
+            case WM_SYSKEYUP:
+                if (app->m_input) app->m_input->OnKeyEvent(wParam, false);
+                return 0;
+            case WM_MOUSEMOVE:
+            {
+                static int lastX = (short)LOWORD(lParam), lastY = (short)HIWORD(lParam);
+                int x = (short)LOWORD(lParam), y = (short)HIWORD(lParam);
+                if (app->m_input) app->m_input->OnMouseMove(x - lastX, y - lastY);
+                lastX = x; lastY = y;
+                return 0;
+            }
+            case WM_LBUTTONDOWN: if (app->m_input) app->m_input->OnMouseButton(0, true); return 0;
+            case WM_LBUTTONUP:   if (app->m_input) app->m_input->OnMouseButton(0, false); return 0;
+            case WM_RBUTTONDOWN: if (app->m_input) app->m_input->OnMouseButton(1, true); return 0;
+            case WM_RBUTTONUP:   if (app->m_input) app->m_input->OnMouseButton(1, false); return 0;
+            case WM_MBUTTONDOWN: if (app->m_input) app->m_input->OnMouseButton(2, true); return 0;
+            case WM_MBUTTONUP:   if (app->m_input) app->m_input->OnMouseButton(2, false); return 0;
+            case WM_MOUSEWHEEL:  if (app->m_input) app->m_input->OnWheel((short)HIWORD(wParam)); return 0;
+            case WM_INPUT:
+                if (app->m_input) {
+                    UINT dataSize = 0;
+                    GetRawInputData((HRAWINPUT)lParam, RID_INPUT, nullptr, &dataSize, sizeof(RAWINPUTHEADER));
+                    if (dataSize > 0) {
+                        std::vector<BYTE> buffer(dataSize);
+                        if (GetRawInputData((HRAWINPUT)lParam, RID_INPUT, buffer.data(), &dataSize, sizeof(RAWINPUTHEADER)) == dataSize) {
+                            RAWINPUT* raw = (RAWINPUT*)buffer.data();
+                            if (raw->header.dwType == RIM_TYPEMOUSE) {
+                                app->m_input->OnRawMouseMove(raw->data.mouse.lLastX, raw->data.mouse.lLastY);
+                            }
+                        }
+                    }
+                }
+                return 0;
             case WM_DESTROY:
                 app->m_running = false;
                 PostQuitMessage(0);
@@ -264,6 +321,37 @@ namespace jisaku
             m_device->BeginFrame();
             if (m_gpuTimer) m_gpuTimer->NewFrame();
             m_imgui.NewFrame();
+            // 入力更新（デルタタイム計算）
+            if (m_input) {
+                // 簡易デルタタイム計算（将来は高精度タイマーへ）
+                static auto lastTime = std::chrono::high_resolution_clock::now();
+                auto currentTime = std::chrono::high_resolution_clock::now();
+                float dt = std::chrono::duration<float>(currentTime - lastTime).count();
+                lastTime = currentTime;
+                
+                // デルタタイムを適切な範囲にクランプ
+                dt = (std::min)(dt, 1.0f/30.0f); // 最大30FPS相当
+                
+                m_input->UpdateCamera(dt);
+                
+                // 右クリック時はマウスカーソルを非表示にする（Raw Input使用）
+                if (m_input->IsMouseDown(1)) { // 右クリック（ボタン1）
+                    if (!m_cursorHidden) {
+                        ShowCursor(FALSE); // カーソルを非表示
+                        m_cursorHidden = true;
+                        SetCapture(m_hwnd); // マウスキャプチャ（画面外でもマウスイベントを受信）
+                    }
+                } else {
+                    if (m_cursorHidden) {
+                        ShowCursor(TRUE);  // カーソルを表示
+                        m_cursorHidden = false;
+                        ReleaseCapture();  // マウスキャプチャ解除
+                    }
+                }
+            }
+            if (m_texQuad && m_input) {
+                m_texQuad->SetCamera(m_input->GetCameraPosition(), m_input->GetCameraRotationQ());
+            }
             
             // ImGuiデバッグウィンドウ
             if (ImGui::Begin("Debug")) {
@@ -293,6 +381,14 @@ namespace jisaku
                     ImGui::Text("Active: %d", m_activeTex);
                 }
 
+                // Mouse sensitivity control
+                if (m_input) {
+                    static float mouseSensitivity = m_input->GetMouseSensitivity();
+                    if (ImGui::SliderFloat("Mouse Sensitivity", &mouseSensitivity, 0.001f, 0.02f)) {
+                        m_input->SetMouseSensitivity(mouseSensitivity);
+                    }
+                }
+
                 // Transform controls (tx, ty, rot, sx, sy)
                 static float tx = 0.0f, ty = 0.0f, rot = 0.0f, sx = 256.0f, sy = 256.0f;
                 ImGui::SliderFloat("Trans X", &tx, -500.0f, 500.0f);
@@ -319,6 +415,13 @@ namespace jisaku
             if (m_gpuTimer) m_gpuTimer->Resolve(m_device->GetCommandList());
             m_device->EndFrameAndPresent(*m_swapchain, true); // VSync有効
             if (m_gpuTimer) m_gpuTimer->Collect();
+            
+            // 入力フレーム終了処理
+            if (m_input) {
+                m_input->NewFrame();
+                // マウス中央固定フラグをリセット（右クリック状態をチェック）
+                m_input->SetMouseCapture(m_input->IsMouseDown(1)); // 1 = 右クリック
+            }
         }
     }
 }

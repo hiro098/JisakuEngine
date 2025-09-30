@@ -8,6 +8,7 @@
 #include "ui/ImGuiLayer.h"
 #include "gfx/TextureLoader.h"
 #include "gfx/GPUTimer.h"
+#include "core/InputManager.h"
 
 namespace jisaku
 {
@@ -62,5 +63,9 @@ namespace jisaku
 
         // GPUタイマー
         std::unique_ptr<jisaku::GPUTimer> m_gpuTimer;
+        std::unique_ptr<jisaku::InputManager> m_input;
+        
+        // マウスカーソル状態管理
+        bool m_cursorHidden = false;
     };
 }

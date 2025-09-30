@@ -3,6 +3,7 @@
 #include <d3d12.h>
 #include <wrl/client.h>
 #include <memory>
+#include <DirectXMath.h>
 #include "TextureLoader.h"
 
 namespace jisaku
@@ -22,6 +23,7 @@ namespace jisaku
         void SetActiveSlot(uint32_t slot);
         uint32_t GetActiveSlot() const { return m_activeSlot; }
         TextureLoader* GetTextureLoader() const { return m_textureLoader.get(); }
+        void SetCamera(const DirectX::XMVECTOR& pos, const DirectX::XMVECTOR& rotQ);
 
     private:
         DX12Device* m_device;
@@ -42,6 +44,8 @@ namespace jisaku
         float m_rotDeg = 0.0f;
         float m_scaleX = 1.0f;
         float m_scaleY = 1.0f;
+        DirectX::XMVECTOR m_camPos = DirectX::XMVectorSet(0, 0, -5, 1);
+        DirectX::XMVECTOR m_camRotQ = DirectX::XMQuaternionIdentity();
 
     public:
         void SetTransform(float tx, float ty, float rotDeg, float sx, float sy) {
